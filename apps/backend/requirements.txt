@@ -1,0 +1,13 @@
+fastapi[all]
+sqlmodel
+asyncpg
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+stripe
+langchain
+openai
+celery
+redis
+uvicorn[standard]
+alembic
