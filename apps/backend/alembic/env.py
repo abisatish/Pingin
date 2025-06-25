@@ -4,11 +4,8 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-
-import os
+from app.db import models           # ← import your models
 from sqlmodel import SQLModel
-# If your models live elsewhere, adjust this import
-from app.db import models  # noqa  (imports all models so metadata is populated)
 
 
 # this is the Alembic Config object, which provides
@@ -20,22 +17,26 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 target_metadata = SQLModel.metadata
 
+# Optional: inject DATABASE_URL from env
+import os
+context.config.set_main_option(
+    "sqlalchemy.url",
+    os.getenv("ALEMBIC_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or "postgresql+psycopg2://postgres:secret@localhost:5432/ccm",
+)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-# Pull DATABASE_URL from environment (falls back to alembic.ini if unset)
-config.set_main_option(
-    "sqlalchemy.url",
-    os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url")),
-)
 
 
 def run_migrations_offline() -> None:

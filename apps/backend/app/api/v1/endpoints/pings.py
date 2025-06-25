@@ -1,26 +1,20 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlmodel import Session, select
 from ..deps import get_db
 from app.db.models import Ping
-from pydantic import BaseModel
+from app.schemas.ping import PingCreate
 
-router = APIRouter()
+router = APIRouter(prefix="/pings", tags=["pings"])
 
-# GET endpoint to list pings
-@router.get("/pings")
-async def list_pings(db: Session = Depends(get_db)):
+# list
+@router.get("/", response_model=list[Ping])
+def list_pings(db: Session = Depends(get_db)):
     return db.exec(select(Ping)).all()
 
-# 🔧 Pydantic model for incoming POST request
-class PingCreate(BaseModel):
-    student_id: int
-    college: str
-    question: str
-
-# POST endpoint to create a ping
-@router.post("/pings")
-async def create_ping(payload: PingCreate, db: Session = Depends(get_db)):
-    ping = Ping.model_validate(payload)
+# create
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=Ping)
+def create_ping(payload: PingCreate, db: Session = Depends(get_db)):
+    ping = Ping(**payload.dict())
     db.add(ping)
     db.commit()
     db.refresh(ping)

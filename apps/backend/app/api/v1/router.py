@@ -1,20 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
-from .deps import get_db
-from ...db.models import Ping
-from .endpoints import pings      # new import
-
-
+from fastapi import APIRouter
+from .endpoints import students, pings, review, auth  # <- add users
 
 router = APIRouter()
+router.include_router(pings.router)
+router.include_router(students.router)
+router.include_router(review.router)
+router.include_router(auth.router)
+
 
 @router.get("/health")
 async def health():
     return {"status": "ok"}
 
-@router.get("/pings")
-async def list_pings(db: Session = Depends(get_db)):
-    return db.exec(select(Ping)).all()
-
-api_router = router          # ← add this alias
-router.include_router(pings.router)
+# alias so main.py can import
+api_router = router

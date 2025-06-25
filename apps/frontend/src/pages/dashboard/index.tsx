@@ -1,43 +1,28 @@
-import { useEffect, useState } from "react";
+import useSWR from "swr";
 import { api } from "@/lib/api";
+import PingForm from "@/components/PingForm";
+
+const fetcher = (url: string) => api.get(url).then(r => r.data);
 
 export default function Dashboard() {
-  const [pings, setPings] = useState([]);
+  // demo student/application IDs
+  const studentId = 1;
+  const applicationId = 1;
 
-  // Fetch all pings on page load
-  useEffect(() => {
-    api.get("/pings").then(res => setPings(res.data));
-  }, []);
-
-  // 🔧 Test ping submission function
-  const submit = async () => {
-    const student_id = 1;
-    const college = "MIT";
-    const question = "Can you review my essay?";
-
-    await api.post("/pings", { student_id, college, question });
-
-    // Refresh the ping list
-    const response = await api.get("/pings");
-    setPings(response.data);
-  };
+  const { data: pings = [] } = useSWR("/pings", fetcher, { refreshInterval: 3000 });
 
   return (
-    <main className="p-8">
+    <main className="p-8 max-w-xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">My Pings</h1>
 
-      {/* 🔘 Test submit button */}
-      <button
-        onClick={submit}
-        className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mb-6"
-      >
-        Create Test Ping
-      </button>
+      <PingForm studentId={studentId} applicationId={applicationId} />
 
-      <ul className="space-y-2">
+      <ul className="space-y-2 mt-6">
         {pings.map((p: any) => (
           <li key={p.id} className="border p-4 rounded">
-            <strong>{p.college}</strong> — {p.question}
+            <span className="font-semibold">#{p.id}</span>{" "}
+            <em className="text-sm text-slate-500">({p.status})</em>
+            <p>{p.question}</p>
           </li>
         ))}
       </ul>
