@@ -4,11 +4,25 @@ import os
 from fastapi import Header, HTTPException
 from jose import JWTError
 from ...core.auth import decode_token
+from dotenv import load_dotenv
 
-engine = create_engine(os.getenv("DATABASE_URL"), echo=True)
+# Load environment variables
+load_dotenv()
+
+# Create engine lazily
+_engine = None
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable is not set")
+        _engine = create_engine(database_url, echo=True)
+    return _engine
 
 def get_db():
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         yield session
 
 

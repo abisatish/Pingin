@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from datetime import datetime
+from sqlalchemy import BigInteger, Column
 
 # --- reference tables ---------------------------------------------------------
 
@@ -29,12 +30,13 @@ class Consultant(SQLModel, table=True):
 class Student(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     registration_id: str                 # used until payment confirmed
-    user_id: int = Field(unique=True)    # FK to auth user
+    user_id: int = Field(sa_column=Column(BigInteger(), unique=True))    # FK to auth user - BIGINT for timestamp IDs
     highschool_id: Optional[int] = Field(foreign_key="highschool.id")
     photo_url: Optional[str] = None
     paid: bool = Field(default=False)
     email: str = Field(unique=True)
     password_hash: str
+    name: str
 
     # relationships
     addresses: List["Address"] = Relationship(back_populates="student")

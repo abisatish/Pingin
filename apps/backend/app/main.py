@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from .api.v1.router import api_router
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="CCM API", version="1.0")
 
