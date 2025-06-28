@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from datetime import datetime
-from sqlalchemy import BigInteger, Column
+from sqlalchemy import BigInteger, Column, JSON
 
 # --- reference tables ---------------------------------------------------------
 
@@ -37,11 +37,20 @@ class Student(SQLModel, table=True):
     email: str = Field(unique=True)
     password_hash: str
     name: str
+    
+    # New demographic fields
+    gender: Optional[str] = None
+    family_income_bracket: Optional[str] = None  # <$50k, $50k-$100k, $100k-$200k, $200k+, prefer_not_to_say
+    is_first_generation: Optional[bool] = None
+    citizenship_status: Optional[str] = None  # us_citizen, us_permanent_resident, international
+    is_underrepresented_group: Optional[str] = None  # yes, no, prefer_not_to_say
+    quiz_completed: bool = Field(default=False)  # Track if student has completed the matching quiz
 
     # relationships
     addresses: List["Address"] = Relationship(back_populates="student")
     transcripts: List["Transcript"] = Relationship(back_populates="student")
     quiz_answers: List["StudentQuizAnswer"] = Relationship(back_populates="student")
+    matching_quiz_responses: List["StudentMatchingQuizResponse"] = Relationship(back_populates="student")
     college_apps: List["CollegeApplication"] = Relationship(back_populates="student")
 
 class Address(SQLModel, table=True):
@@ -66,7 +75,35 @@ class Transcript(SQLModel, table=True):
 
     student: "Student" = Relationship(back_populates="transcripts")
 
-# --- matching quiz ------------------------------------------------------------
+# --- comprehensive matching quiz ------------------------------------------------------------
+
+class StudentMatchingQuizResponse(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    student_id: int = Field(foreign_key="student.id")
+    
+    # Academic Interests / Background
+    passionate_subjects: Optional[str] = Field(sa_column=Column(JSON))  # Array of selected subjects
+    academic_competitions: Optional[str] = Field(sa_column=Column(JSON))  # Array of competitions participated in
+    has_published_research: Optional[bool] = None
+    extracurricular_activities: Optional[str] = Field(sa_column=Column(JSON))  # Array of activities
+    
+    # Demographics (Optional)
+    gender: Optional[str] = None
+    family_income_bracket: Optional[str] = None
+    is_first_generation: Optional[bool] = None
+    citizenship_status: Optional[str] = None
+    is_underrepresented_group: Optional[str] = None
+    
+    # Additional fields for better matching
+    other_subjects: Optional[str] = None  # Free text for "Other" subjects
+    other_activities: Optional[str] = None  # Free text for "Other" activities
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    student: "Student" = Relationship(back_populates="matching_quiz_responses")
+
+# --- legacy matching quiz (keeping for backward compatibility) ------------------------------------------------------------
 
 class QuizQuestion(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

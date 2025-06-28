@@ -11,7 +11,7 @@ INSERT INTO college (id, name, common_app_code) VALUES
   (2,'Stanford University','STAN'),
   (3,'University of Texas at Austin','UTA');
 
-/* ─── consultants (NEW: password_hash) ─────────────────────────────── */
+/* ─── consultants ───────────────────────────────────────────────────── */
 INSERT INTO consultant
         (id, email,               name,        bio,                                     tags,
          password_hash)
@@ -24,16 +24,51 @@ VALUES  (1, 'jane@consults.com',  'Jane Parker',
             '{"debate","business","startup"}',
             '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC');
 
-/* ─── students (NEW: email, password_hash) ─────────────────────────── */
+/* ─── students ──────────────────────────────────────────────────────── */
 INSERT INTO student
         (id, registration_id, user_id, highschool_id, photo_url, paid,
-         email,              password_hash)
+         email,              password_hash,                                            name,
+         gender, family_income_bracket, is_first_generation, citizenship_status, is_underrepresented_group, quiz_completed)
 VALUES  (1,'REG-001',101,1,'https://pics.example/s1.jpg',TRUE,
-         'alice@example.com','$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee'),
+         'alice@example.com','$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee', 'Alice Smith',
+         'Female', '$100,000–$200,000', FALSE, 'us_citizen', 'no', TRUE),
         (2,'REG-002',102,2,'https://pics.example/s2.jpg',FALSE,
-         'ben@example.com',  '$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee'),
+         'ben@example.com',  '$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee', 'Ben Tran',
+         'Male', '$50,000–$100,000', TRUE, 'us_citizen', 'yes', TRUE),
         (3,'REG-003',103,1,NULL,                           TRUE,
-         'cara@example.com', '$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee');
+         'cara@example.com', '$2b$12$Sidd2DcTAedIHfwfbaTAueNJgFHYQV.tobveVUUP3Z1xRJBKVm/ee', 'Cara Patel',
+         'Female', '$200,000+', FALSE, 'us_permanent_resident', 'no', TRUE);
+
+/* ─── matching quiz responses ───────────────────────────────────────── */
+INSERT INTO studentmatchingquizresponse
+        (student_id, passionate_subjects, academic_competitions, has_published_research, 
+         extracurricular_activities, gender, family_income_bracket, is_first_generation, 
+         citizenship_status, is_underrepresented_group, other_subjects, other_activities,
+         created_at, updated_at)
+VALUES  
+        (1, '["Mathematics", "Computer Science", "Physics"]',
+         '["USACO", "FIRST Robotics", "Science Olympiad"]',
+         TRUE,
+         '["Varsity Athletics", "Student Government"]',
+         'Female', '$100,000–$200,000', FALSE, 'us_citizen', 'no',
+         '', '', NOW(), NOW()),
+
+        (2, '["Economics", "Business / Entrepreneurship", "Political Science"]',
+         '["DECA", "Model UN"]',
+         FALSE,
+         '["Debate or Speech", "Volunteering / Community Service"]',
+         'Male', '$50,000–$100,000', TRUE, 'us_citizen', 'yes',
+         '', 'Community organizing', NOW(), NOW()),
+
+        (3, '["Biology", "Chemistry", "Environmental Science"]',
+         '["Science Olympiad", "Intel STS / Regeneron"]',
+         TRUE,
+         '["Performing Arts (e.g., Band, Theater)", "Volunteering / Community Service"]',
+         'Female', '$200,000+', FALSE, 'us_permanent_resident', 'no',
+         'Neuroscience', 'Environmental activism', NOW(), NOW());
+
+-- Reset the auto-increment sequence so new inserts don’t conflict
+SELECT setval('studentmatchingquizresponse_id_seq', (SELECT MAX(id) FROM studentmatchingquizresponse));
 
 /* ─── addresses ─────────────────────────────────────────────────────── */
 INSERT INTO address (id, student_id, line1, city, state, zip_code, country, type) VALUES

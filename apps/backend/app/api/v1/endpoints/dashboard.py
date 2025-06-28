@@ -1,15 +1,19 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlmodel import select, Session
-from ..deps import get_db, get_current_role
+from ..deps import get_db, get_current_role, get_current_user, get_current_consultant
 from app.db.models import Ping, CollegeApplication, Student, Consultant, Transcript
 
 router = APIRouter(tags=["dashboard"])
 
 @router.get("/dashboard")
-def get_dashboard(role: str = Depends(get_current_role), db: Session = Depends(get_db)):
+def get_dashboard(
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+    authorization: str = Header(...)
+):
     if role == "student":
-        # Fake for now, real user id would come from token
-        student_id = 1  
+        current_user = get_current_user(authorization, db)
+        student_id = current_user.id
         pings = db.exec(
             select(Ping).where(Ping.student_id == student_id).order_by(Ping.created_at.desc()).limit(5)
         ).all()
@@ -36,7 +40,8 @@ def get_dashboard(role: str = Depends(get_current_role), db: Session = Depends(g
         }
 
     elif role == "consultant":
-        consultant_id = 1
+        current_consultant = get_current_consultant(authorization, db)
+        consultant_id = current_consultant.id
         pings = db.exec(
             select(Ping).where(Ping.consultant_id == consultant_id).order_by(Ping.created_at.desc()).limit(5)
         ).all()

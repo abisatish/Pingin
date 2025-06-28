@@ -1,8 +1,8 @@
 """init schema
 
-Revision ID: ae30f75475a9
+Revision ID: 20805cb3e5bf
 Revises: 
-Create Date: 2025-06-27 01:15:39.262812
+Create Date: 2025-06-27 02:38:27.348615
 
 """
 from typing import Sequence, Union
@@ -11,9 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 import sqlmodel
 
-
 # revision identifiers, used by Alembic.
-revision: str = 'ae30f75475a9'
+revision: str = '20805cb3e5bf'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -61,6 +60,12 @@ def upgrade() -> None:
     sa.Column('email', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('password_hash', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('family_income_bracket', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('is_first_generation', sa.Boolean(), nullable=True),
+    sa.Column('citizenship_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('is_underrepresented_group', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('quiz_completed', sa.Boolean(), nullable=False),
     sa.ForeignKeyConstraint(['highschool_id'], ['highschool.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
@@ -87,6 +92,25 @@ def upgrade() -> None:
     sa.Column('status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.ForeignKeyConstraint(['college_id'], ['college.id'], ),
     sa.ForeignKeyConstraint(['consultant_id'], ['consultant.id'], ),
+    sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('studentmatchingquizresponse',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('student_id', sa.Integer(), nullable=False),
+    sa.Column('passionate_subjects', sa.JSON(), nullable=True),
+    sa.Column('academic_competitions', sa.JSON(), nullable=True),
+    sa.Column('has_published_research', sa.Boolean(), nullable=True),
+    sa.Column('extracurricular_activities', sa.JSON(), nullable=True),
+    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('family_income_bracket', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('is_first_generation', sa.Boolean(), nullable=True),
+    sa.Column('citizenship_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('is_underrepresented_group', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('other_subjects', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('other_activities', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -155,6 +179,7 @@ def downgrade() -> None:
     op.drop_table('essayresponse')
     op.drop_table('transcript')
     op.drop_table('studentquizanswer')
+    op.drop_table('studentmatchingquizresponse')
     op.drop_table('collegeapplication')
     op.drop_table('address')
     op.drop_table('student')

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { api } from "@/lib/api";
 
@@ -6,14 +6,37 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPass] = useState("");
   const [err, setErr] = useState("");
+  const [success, setSuccess] = useState("");
   const r = useRouter();
+
+  // Check for success message from signup
+  useEffect(() => {
+    const message = r.query.message as string;
+    if (message) {
+      setSuccess(message);
+      // Clear the query parameter
+      r.replace("/login", undefined, { shallow: true });
+    }
+  }, [r.query.message]);
 
   async function handle(e: any) {
     e.preventDefault();
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem("token", data.access_token);
-      r.push("/dashboard");
+      
+      // Check if user has completed the quiz
+      try {
+        const quizResponse = await api.get("/matching-quiz/check-completion");
+        if (quizResponse.data.quiz_completed) {
+          r.push("/dashboard");
+        } else {
+          r.push("/matching-quiz");
+        }
+      } catch (error) {
+        // If quiz check fails, assume quiz is not completed
+        r.push("/matching-quiz");
+      }
     } catch {
       setErr("Bad credentials");
     }
@@ -48,6 +71,7 @@ export default function Login() {
           <a href="#" className="text-green-700 text-sm hover:underline">Forgot password?</a>
         </div>
         {err && <p className="text-sm text-red-500 mb-2 w-full text-center">{err}</p>}
+        {success && <p className="text-sm text-green-600 mb-2 w-full text-center">{success}</p>}
         <button
           className="bg-green-700 hover:bg-green-800 text-white w-full py-2 rounded-md font-semibold text-lg transition-colors mb-2 mt-1"
         >
@@ -55,7 +79,7 @@ export default function Login() {
         </button>
         <div className="w-full text-center mt-2">
           <span className="text-gray-500 text-sm">Don't have an account? </span>
-          <a href="#" className="text-green-700 text-sm font-medium hover:underline">Make one now!</a>
+          <a href="/signup" className="text-green-700 text-sm font-medium hover:underline">Sign up now!</a>
         </div>
       </form>
     </main>
