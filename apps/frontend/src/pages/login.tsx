@@ -24,14 +24,26 @@ export default function Login() {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem("token", data.access_token);
-      
-      // Check if user has completed the quiz
+
+      // Try student quiz completion check first
       try {
         const quizResponse = await api.get("/matching-quiz/check-completion");
-        if (quizResponse.data.quiz_completed) {
-          r.push("/dashboard");
+        const { quiz_completed, role } = quizResponse.data;
+        if (role === "consultant") {
+          // If consultant, check consultant quiz completion endpoint
+          const consultantQuizRes = await api.get("/consultant-matching-quiz/check-completion");
+          if (consultantQuizRes.data.quiz_completed) {
+            r.push("/dashboard");
+          } else {
+            r.push("/matching-quiz");
+          }
         } else {
-          r.push("/matching-quiz");
+          // Student flow
+          if (quiz_completed) {
+            r.push("/dashboard");
+          } else {
+            r.push("/matching-quiz");
+          }
         }
       } catch (error) {
         // If quiz check fails, assume quiz is not completed

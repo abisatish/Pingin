@@ -14,10 +14,6 @@ interface QuizData {
   is_underrepresented_group?: string;
   other_subjects?: string;
   other_activities?: string;
-  colleges: Array<{
-    name: string;
-    major: string;
-  }>;
 }
 
 const SUBJECTS = [
@@ -55,6 +51,7 @@ export default function MatchingQuiz() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
+  const [role, setRole] = useState<string | null>(null);
   const [quizData, setQuizData] = useState<QuizData>({
     passionate_subjects: [],
     academic_competitions: [],
@@ -64,33 +61,59 @@ export default function MatchingQuiz() {
     family_income_bracket: "",
     is_first_generation: undefined,
     citizenship_status: "",
-    is_underrepresented_group: "",
-    colleges: []
+    is_underrepresented_group: ""
   });
+  const [thankYou, setThankYou] = useState(false);
+  const [checkingCompletion, setCheckingCompletion] = useState(true);
 
   useEffect(() => {
-    // Check if user has already completed the quiz
+    // Fetch quiz completion and role from API
     const checkQuizCompletion = async () => {
       try {
-        const { data } = await api.get("/matching-quiz/check-completion");
+        // Try consultant endpoint first, fallback to student
+        let res;
+        try {
+          res = await api.get("/consultant-matching-quiz/check-completion");
+        } catch {
+          res = await api.get("/matching-quiz/check-completion");
+        }
+        const data = res.data;
+        setRole(data.role);
         if (data.quiz_completed) {
-          router.push("/dashboard");
+          if (data.role === "consultant") await router.push("/dashboard");
+          else router.push("/dashboard");
         }
       } catch (error) {
         console.error("Error checking quiz completion:", error);
+      } finally {
+        setCheckingCompletion(false);
       }
     };
     checkQuizCompletion();
   }, [router]);
 
+  if (checkingCompletion) {
+    return null;
+  }
+
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      await api.post("/matching-quiz/submit", quizData);
-      router.push("/dashboard?message=Quiz completed successfully!");
+      if (role === "consultant") {
+        await api.post("/consultant-matching-quiz/submit", quizData);
+        await router.push("/dashboard");
+      } else {
+        await api.post("/matching-quiz/submit", quizData);
+        await router.push("/college-selection?message=Quiz completed successfully!");
+      }
     } catch (error: any) {
-      console.error("Error submitting quiz:", error);
-      alert("Error submitting quiz. Please try again.");
+      let errorMessage = "Error submitting quiz. Please try again.";
+      if (error.response?.data?.detail) {
+        errorMessage = `Error: ${error.response.data.detail}`;
+      } else if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -360,76 +383,16 @@ export default function MatchingQuiz() {
     </div>
   );
 
-  const renderStep3 = () => (
-    <div className="space-y-8">
-      <div className="text-center">
-        <h1 className="text-white text-3xl font-bold font-montserrat leading-tight tracking-tight">
-          Which colleges are you applying to?
-        </h1>
-        <p className="text-white/80 font-montserrat text-lg mt-4 max-w-md mx-auto leading-relaxed">
-          Add the colleges and majors you're interested in. We'll match you with the best consultants for each.
-        </p>
+  if (thankYou && role === "consultant") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-green-100">
+        <div className="bg-white p-8 rounded shadow text-center">
+          <h1 className="text-2xl font-bold mb-4">Thank you for completing your consultant profile!</h1>
+          <p className="text-lg">Your expertise will help us match you with the right students.</p>
+        </div>
       </div>
-
-      <div className="space-y-6">
-        {quizData.colleges.map((college, index) => (
-          <div key={index} className="bg-white/10 border border-white/20 rounded-2xl p-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-white font-montserrat font-medium mb-3">College/University:</label>
-                <input
-                  type="text"
-                  value={college.name}
-                  onChange={(e) => {
-                    const newColleges = [...quizData.colleges];
-                    newColleges[index].name = e.target.value;
-                    setQuizData(prev => ({ ...prev, colleges: newColleges }));
-                  }}
-                  className="w-full p-4 bg-white/15 border border-white/10 rounded-2xl text-white placeholder-white/60 font-montserrat"
-                  placeholder="e.g., Harvard University"
-                />
-              </div>
-              <div>
-                <label className="block text-white font-montserrat font-medium mb-3">Intended Major:</label>
-                <input
-                  type="text"
-                  value={college.major}
-                  onChange={(e) => {
-                    const newColleges = [...quizData.colleges];
-                    newColleges[index].major = e.target.value;
-                    setQuizData(prev => ({ ...prev, colleges: newColleges }));
-                  }}
-                  className="w-full p-4 bg-white/15 border border-white/10 rounded-2xl text-white placeholder-white/60 font-montserrat"
-                  placeholder="e.g., Computer Science"
-                />
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                const newColleges = quizData.colleges.filter((_, i) => i !== index);
-                setQuizData(prev => ({ ...prev, colleges: newColleges }));
-              }}
-              className="mt-4 px-4 py-2 bg-red-500/20 border border-red-400/30 rounded-xl text-red-300 font-montserrat hover:bg-red-500/30 transition-all duration-300"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-
-        <button
-          onClick={() => {
-            setQuizData(prev => ({
-              ...prev,
-              colleges: [...prev.colleges, { name: "", major: "" }]
-            }));
-          }}
-          className="w-full p-6 bg-white/15 border border-white/10 rounded-2xl text-white font-montserrat text-lg hover:bg-white/20 hover:border-white/30 transition-all duration-300"
-        >
-          + Add Another College
-        </button>
-      </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-600 to-pink-600 flex items-center justify-center p-5">
@@ -442,24 +405,21 @@ export default function MatchingQuiz() {
         {/* Progress indicator */}
         <div className="text-center mb-8">
           <div className="text-white font-montserrat text-2xl font-semibold mb-4">
-            {currentStep} of 3
+            {currentStep} of 2
           </div>
           <div className="flex justify-center space-x-2 mb-8">
             <div className={`w-16 h-2 rounded-full transition-all duration-500 ${
               currentStep >= 1 ? 'bg-gradient-to-r from-pink-400 to-violet-400' : 'bg-white/30'
             }`}></div>
-            <div className={`w-16 h-2 rounded-full transition-all duration-500 ${
+            <div className={`w-8 h-2 rounded-full transition-all duration-500 ${
               currentStep >= 2 ? 'bg-gradient-to-r from-pink-400 to-violet-400' : 'bg-white/30'
-            }`}></div>
-            <div className={`w-16 h-2 rounded-full transition-all duration-500 ${
-              currentStep >= 3 ? 'bg-gradient-to-r from-pink-400 to-violet-400' : 'bg-white/30'
             }`}></div>
           </div>
         </div>
 
         {/* Main quiz container */}
         <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl p-8 shadow-2xl">
-          {currentStep === 1 ? renderStep1() : currentStep === 2 ? renderStep2() : renderStep3()}
+          {currentStep === 1 ? renderStep1() : renderStep2()}
         </div>
 
         {/* Navigation buttons */}
@@ -474,7 +434,7 @@ export default function MatchingQuiz() {
           )}
           
           <div className="ml-auto">
-            {currentStep < 3 ? (
+            {currentStep < 2 ? (
               <button
                 onClick={() => setCurrentStep(prev => prev + 1)}
                 className="px-8 py-4 bg-gradient-to-r from-pink-400 to-violet-400 text-white rounded-2xl font-montserrat font-semibold hover:scale-105 transition-all duration-300 shadow-lg"

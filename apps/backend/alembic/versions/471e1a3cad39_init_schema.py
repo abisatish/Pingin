@@ -1,8 +1,8 @@
 """init schema
 
-Revision ID: 20805cb3e5bf
+Revision ID: 471e1a3cad39
 Revises: 
-Create Date: 2025-06-27 02:38:27.348615
+Create Date: 2025-06-28 21:39:41.734851
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 import sqlmodel
 
 # revision identifiers, used by Alembic.
-revision: str = '20805cb3e5bf'
+revision: str = '471e1a3cad39'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -50,6 +50,22 @@ def upgrade() -> None:
     sa.Column('tag', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('consultantmatchingquizresponse',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('consultant_id', sa.Integer(), nullable=False),
+    sa.Column('passionate_subjects', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('academic_competitions', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('has_published_research', sa.Boolean(), nullable=True),
+    sa.Column('extracurricular_activities', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('other_subjects', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('other_activities', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('first_generation', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['consultant_id'], ['consultant.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('student',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('registration_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
@@ -61,11 +77,13 @@ def upgrade() -> None:
     sa.Column('password_hash', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('family_income_bracket', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('family_income_bracket', sa.Enum('UNDER_50K', 'FIFTY_TO_100K', 'HUNDRED_TO_200K', 'OVER_200K', 'PREFER_NOT_TO_SAY', name='incomebracket'), nullable=True),
     sa.Column('is_first_generation', sa.Boolean(), nullable=True),
-    sa.Column('citizenship_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('is_underrepresented_group', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('citizenship_status', sa.Enum('US_CITIZEN', 'US_PERMANENT_RESIDENT', 'INTERNATIONAL', name='citizenshipstatus'), nullable=True),
+    sa.Column('is_underrepresented_group', sa.Enum('YES', 'NO', 'PREFER_NOT_TO_SAY', name='underrepresentedgroup'), nullable=True),
     sa.Column('quiz_completed', sa.Boolean(), nullable=False),
+    sa.Column('college_selection_completed', sa.Boolean(), nullable=False),
+    sa.Column('matching_completed', sa.Boolean(), nullable=False),
     sa.ForeignKeyConstraint(['highschool_id'], ['highschool.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
@@ -87,30 +105,36 @@ def upgrade() -> None:
     op.create_table('collegeapplication',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('student_id', sa.Integer(), nullable=False),
-    sa.Column('college_id', sa.Integer(), nullable=False),
+    sa.Column('college_name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('major', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('major_category', sa.Enum('STEM', 'HUMANITIES', 'SOCIAL_SCIENCES', 'BUSINESS', 'ARTS', 'HEALTH', 'EDUCATION', 'OTHER', name='majorcategory'), nullable=True),
     sa.Column('consultant_id', sa.Integer(), nullable=True),
-    sa.Column('status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.ForeignKeyConstraint(['college_id'], ['college.id'], ),
+    sa.Column('status', sa.Enum('DRAFT', 'SUBMITTED', 'ACCEPTED', 'REJECTED', 'WAITLISTED', 'DEFERRED', name='collegeapplicationstatus'), nullable=False),
+    sa.Column('match_score', sa.Float(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['consultant_id'], ['consultant.id'], ),
     sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_collegeapplication_college_name'), 'collegeapplication', ['college_name'], unique=False)
+    op.create_index(op.f('ix_collegeapplication_major'), 'collegeapplication', ['major'], unique=False)
     op.create_table('studentmatchingquizresponse',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('student_id', sa.Integer(), nullable=False),
     sa.Column('passionate_subjects', sa.JSON(), nullable=True),
     sa.Column('academic_competitions', sa.JSON(), nullable=True),
-    sa.Column('has_published_research', sa.Boolean(), nullable=True),
+    sa.Column('has_published_research', sa.Boolean(), nullable=False),
     sa.Column('extracurricular_activities', sa.JSON(), nullable=True),
-    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('family_income_bracket', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('is_first_generation', sa.Boolean(), nullable=True),
-    sa.Column('citizenship_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('is_underrepresented_group', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('other_subjects', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('other_activities', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('family_income_bracket', sa.Enum('UNDER_50K', 'FIFTY_TO_100K', 'HUNDRED_TO_200K', 'OVER_200K', 'PREFER_NOT_TO_SAY', name='incomebracket'), nullable=True),
+    sa.Column('is_first_generation', sa.Boolean(), nullable=True),
+    sa.Column('citizenship_status', sa.Enum('US_CITIZEN', 'US_PERMANENT_RESIDENT', 'INTERNATIONAL', name='citizenshipstatus'), nullable=True),
+    sa.Column('is_underrepresented_group', sa.Enum('YES', 'NO', 'PREFER_NOT_TO_SAY', name='underrepresentedgroup'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -180,9 +204,12 @@ def downgrade() -> None:
     op.drop_table('transcript')
     op.drop_table('studentquizanswer')
     op.drop_table('studentmatchingquizresponse')
+    op.drop_index(op.f('ix_collegeapplication_major'), table_name='collegeapplication')
+    op.drop_index(op.f('ix_collegeapplication_college_name'), table_name='collegeapplication')
     op.drop_table('collegeapplication')
     op.drop_table('address')
     op.drop_table('student')
+    op.drop_table('consultantmatchingquizresponse')
     op.drop_table('quizquestion')
     op.drop_table('highschool')
     op.drop_table('consultant')
