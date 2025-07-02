@@ -132,6 +132,7 @@ class Student(SQLModel, table=True):
     quiz_answers: List["StudentQuizAnswer"] = Relationship(back_populates="student")
     matching_quiz_responses: List["StudentMatchingQuizResponse"] = Relationship(back_populates="student")
     college_apps: List["CollegeApplication"] = Relationship(back_populates="student")
+    tasks: List["Task"] = Relationship(back_populates="student")
 
 class Address(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -161,11 +162,11 @@ class StudentMatchingQuizResponse(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     student_id: int = Field(foreign_key="student.id")
     
-    # Academic background
-    passionate_subjects: List[str] = Field(sa_column=Column(JSON))  # List of Subject enum values
-    academic_competitions: List[str] = Field(sa_column=Column(JSON))  # List of AcademicCompetition enum values
+    # Academic background - using enums for consistency
+    passionate_subjects: List[Subject] = Field(sa_column=Column(JSON))  # List of Subject enum values
+    academic_competitions: List[AcademicCompetition] = Field(sa_column=Column(JSON))  # List of AcademicCompetition enum values
     has_published_research: bool
-    extracurricular_activities: List[str] = Field(sa_column=Column(JSON))  # List of ExtracurricularActivity enum values
+    extracurricular_activities: List[ExtracurricularActivity] = Field(sa_column=Column(JSON))  # List of ExtracurricularActivity enum values
     other_subjects: Optional[str] = None
     other_activities: Optional[str] = None
     
@@ -238,10 +239,13 @@ class Ping(SQLModel, table=True):
     status: str = "open"                   # open, answered, closed
     answer: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    essay_id: Optional[int] = Field(default=None, foreign_key="essayresponse.id")
 
     application: "CollegeApplication" = Relationship(back_populates="pings")
     comments: List["Comment"] = Relationship(back_populates="ping")
-    
+    suggestions: List["Suggestion"] = Relationship(back_populates="ping")
+    essay: Optional["EssayResponse"] = Relationship()
+
 class Comment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ping_id: int            = Field(foreign_key="ping.id")          # which Ping
@@ -253,6 +257,19 @@ class Comment(SQLModel, table=True):
     created_at: datetime    = Field(default_factory=datetime.utcnow)
 
     ping:      "Ping"       = Relationship(back_populates="comments")
+
+class Suggestion(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ping_id: int = Field(foreign_key="ping.id")
+    author_id: int = Field(foreign_key="consultant.id")
+    type: str = Field(default="grammar")  # grammar, style, content, structure
+    original_text: str
+    suggested_text: str
+    comment: str
+    accepted: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    ping: "Ping" = Relationship(back_populates="suggestions")
 
 # Popular colleges for selection
 POPULAR_COLLEGES = [
@@ -548,13 +565,54 @@ POPULAR_MAJORS = [
 class ConsultantMatchingQuizResponse(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     consultant_id: int = Field(foreign_key="consultant.id")
-    passionate_subjects: Optional[str]  # JSON string
-    academic_competitions: Optional[str]
-    has_published_research: Optional[bool]
-    extracurricular_activities: Optional[str]
-    other_subjects: Optional[str]
-    other_activities: Optional[str]
-    gender: Optional[str]
-    first_generation: Optional[bool]
+    
+    # Academic background - using enums for consistency
+    passionate_subjects: List[Subject] = Field(sa_column=Column(JSON))  # List of Subject enum values
+    academic_competitions: List[AcademicCompetition] = Field(sa_column=Column(JSON))  # List of AcademicCompetition enum values
+    has_published_research: Optional[bool] = None
+    extracurricular_activities: List[ExtracurricularActivity] = Field(sa_column=Column(JSON))  # List of ExtracurricularActivity enum values
+    other_subjects: Optional[str] = None
+    other_activities: Optional[str] = None
+    
+    # Demographics (optional) - matching student model
+    gender: Optional[str] = None
+    family_income_bracket: Optional[IncomeBracket] = None
+    is_first_generation: Optional[bool] = None  # Changed from first_generation to match student model
+    citizenship_status: Optional[CitizenshipStatus] = None
+    is_underrepresented_group: Optional[UnderrepresentedGroup] = None
+    
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+# Task status enum
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    OVERDUE = "overdue"
+
+# Task priority enum
+class TaskPriority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+# Task model for upcoming tasks functionality
+class Task(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    student_id: int = Field(foreign_key="student.id")
+    title: str
+    description: Optional[str] = None
+    due_date: Optional[datetime] = None
+    status: TaskStatus = Field(default=TaskStatus.PENDING)
+    priority: TaskPriority = Field(default=TaskPriority.MEDIUM)
+    category: Optional[str] = None  # e.g., "essay", "application", "interview", "recommendation"
+    related_application_id: Optional[int] = Field(default=None, foreign_key="collegeapplication.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    
+    # relationships
+    student: "Student" = Relationship(back_populates="tasks")
+    application: Optional["CollegeApplication"] = Relationship()

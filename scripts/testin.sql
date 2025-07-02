@@ -1,0 +1,1 @@
+SELECT response FROM essayresponse WHERE id = 17;

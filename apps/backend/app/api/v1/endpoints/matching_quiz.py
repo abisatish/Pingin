@@ -4,7 +4,7 @@ from typing import List
 from datetime import datetime
 
 from ..deps import get_db, get_current_user, get_current_role
-from app.db.models import Student, StudentMatchingQuizResponse, IncomeBracket, CitizenshipStatus, UnderrepresentedGroup
+from app.db.models import Student, StudentMatchingQuizResponse, IncomeBracket, CitizenshipStatus, UnderrepresentedGroup, Subject, AcademicCompetition, ExtracurricularActivity
 from app.schemas.student import MatchingQuizRequest, MatchingQuizResponse
 
 router = APIRouter(prefix="/matching-quiz", tags=["matching-quiz"])
@@ -38,6 +38,58 @@ def convert_underrepresented_group(display_value: str) -> UnderrepresentedGroup:
     }
     return mapping.get(display_value, UnderrepresentedGroup.PREFER_NOT_TO_SAY)
 
+def convert_subjects_to_enums(subject_strings: List[str]) -> List[Subject]:
+    """Convert frontend subject strings to enum values"""
+    subject_mapping = {
+        "Mathematics": Subject.MATHEMATICS,
+        "Computer Science": Subject.COMPUTER_SCIENCE,
+        "Biology": Subject.BIOLOGY,
+        "Chemistry": Subject.CHEMISTRY,
+        "Physics": Subject.PHYSICS,
+        "Environmental Science": Subject.ENVIRONMENTAL_SCIENCE,
+        "Engineering": Subject.ENGINEERING,
+        "Economics": Subject.ECONOMICS,
+        "Political Science": Subject.POLITICAL_SCIENCE,
+        "History": Subject.HISTORY,
+        "Literature / English": Subject.LITERATURE_ENGLISH,
+        "Philosophy": Subject.PHILOSOPHY,
+        "Psychology": Subject.PSYCHOLOGY,
+        "Sociology": Subject.SOCIOLOGY,
+        "Art / Art History": Subject.ART_HISTORY,
+        "Music Theory / Performance": Subject.MUSIC_THEORY,
+        "Foreign Languages (e.g., Spanish, French, Chinese)": Subject.FOREIGN_LANGUAGES,
+        "Business / Entrepreneurship": Subject.BUSINESS_ENTREPRENEURSHIP,
+        "Law / Pre-Law": Subject.LAW_PRE_LAW,
+        "Education / Teaching": Subject.EDUCATION_TEACHING
+    }
+    return [subject_mapping.get(s, Subject.MATHEMATICS) for s in subject_strings if s in subject_mapping]
+
+def convert_competitions_to_enums(competition_strings: List[str]) -> List[AcademicCompetition]:
+    """Convert frontend competition strings to enum values"""
+    competition_mapping = {
+        "USACO (Informatics Olympiad)": AcademicCompetition.USACO,
+        "ISEF (Science & Engineering Fair)": AcademicCompetition.ISEF,
+        "AMC / AIME (Math Olympiad)": AcademicCompetition.AMC_AIME,
+        "Science Olympiad": AcademicCompetition.SCIENCE_OLYMPIAD,
+        "DECA": AcademicCompetition.DECA,
+        "Model UN": AcademicCompetition.MODEL_UN,
+        "FIRST Robotics": AcademicCompetition.FIRST_ROBOTICS,
+        "Intel STS / Regeneron": AcademicCompetition.INTEL_STS
+    }
+    return [competition_mapping.get(c, AcademicCompetition.USACO) for c in competition_strings if c in competition_mapping]
+
+def convert_activities_to_enums(activity_strings: List[str]) -> List[ExtracurricularActivity]:
+    """Convert frontend activity strings to enum values"""
+    activity_mapping = {
+        "Varsity Athletics": ExtracurricularActivity.VARSITY_ATHLETICS,
+        "Debate or Speech": ExtracurricularActivity.DEBATE_SPEECH,
+        "Performing Arts (e.g., Band, Theater)": ExtracurricularActivity.PERFORMING_ARTS,
+        "Volunteering / Community Service": ExtracurricularActivity.VOLUNTEERING,
+        "Entrepreneurship / Startup Projects": ExtracurricularActivity.ENTREPRENEURSHIP,
+        "Student Government": ExtracurricularActivity.STUDENT_GOVERNMENT
+    }
+    return [activity_mapping.get(a, ExtracurricularActivity.VARSITY_ATHLETICS) for a in activity_strings if a in activity_mapping]
+
 @router.get("/check-completion")
 def check_quiz_completion(
     db: Session = Depends(get_db),
@@ -68,6 +120,11 @@ def submit_matching_quiz(
     if quiz_data.is_underrepresented_group:
         is_underrepresented_group = convert_underrepresented_group(quiz_data.is_underrepresented_group)
     
+    # Convert frontend strings to enums
+    passionate_subjects = convert_subjects_to_enums(quiz_data.passionate_subjects)
+    academic_competitions = convert_competitions_to_enums(quiz_data.academic_competitions)
+    extracurricular_activities = convert_activities_to_enums(quiz_data.extracurricular_activities)
+    
     # Check if user already has quiz responses
     existing_response = db.exec(
         select(StudentMatchingQuizResponse).where(
@@ -77,10 +134,10 @@ def submit_matching_quiz(
     
     if existing_response:
         # Update existing response
-        existing_response.passionate_subjects = quiz_data.passionate_subjects
-        existing_response.academic_competitions = quiz_data.academic_competitions
+        existing_response.passionate_subjects = passionate_subjects
+        existing_response.academic_competitions = academic_competitions
         existing_response.has_published_research = quiz_data.has_published_research
-        existing_response.extracurricular_activities = quiz_data.extracurricular_activities
+        existing_response.extracurricular_activities = extracurricular_activities
         existing_response.gender = quiz_data.gender
         existing_response.family_income_bracket = family_income_bracket
         existing_response.is_first_generation = quiz_data.is_first_generation
@@ -95,10 +152,10 @@ def submit_matching_quiz(
         # Create new response
         new_response = StudentMatchingQuizResponse(
             student_id=current_user.id,
-            passionate_subjects=quiz_data.passionate_subjects,
-            academic_competitions=quiz_data.academic_competitions,
+            passionate_subjects=passionate_subjects,
+            academic_competitions=academic_competitions,
             has_published_research=quiz_data.has_published_research,
-            extracurricular_activities=quiz_data.extracurricular_activities,
+            extracurricular_activities=extracurricular_activities,
             gender=quiz_data.gender,
             family_income_bracket=family_income_bracket,
             is_first_generation=quiz_data.is_first_generation,

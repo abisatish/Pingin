@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Header
 from sqlmodel import select, Session
 from ..deps import get_db, get_current_role, get_current_user, get_current_consultant
-from app.db.models import Ping, CollegeApplication, Student, Consultant, Transcript, EssayResponse, Comment
+from app.db.models import Ping, CollegeApplication, Student, Consultant, Transcript, EssayResponse, Comment, Task, TaskStatus
+from datetime import datetime, timedelta
 
 router = APIRouter(tags=["dashboard"])
 
@@ -22,13 +23,40 @@ def get_dashboard(
             select(CollegeApplication).where(CollegeApplication.student_id == student_id)
         ).all()
 
+        # Get upcoming tasks (pending and in progress, ordered by due date)
+        tasks = db.exec(
+            select(Task)
+            .where(
+                Task.student_id == student_id,
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS])
+            )
+            .order_by(Task.due_date.asc().nullslast(), Task.created_at.desc())
+            .limit(10)
+        ).all()
+
+        # Calculate some basic stats
+        total_applications = len(apps)
+        essays_complete = "0/0"  # This would need to be calculated from essays
+        pings_remaining = 10  # This would need to be calculated from available pings
+
         return {
             "role": role,
+            "id": student_id,
+            "name": current_user.name,
+            "token": authorization,
+            "student_id": student_id,
             "pings": [ 
                 {
                     "id": p.id,
                     "question": p.question,
-                    "status": p.status
+                    "status": p.status,
+                    "answer": p.answer,
+                    "created_at": p.created_at.isoformat(),
+                    "application_id": p.application_id,
+                    "application": {
+                        "college_name": next((app.college_name for app in apps if app.id == p.application_id), "Unknown College"),
+                        "major": next((app.major for app in apps if app.id == p.application_id), "Unknown Major")
+                    }
                 } for p in pings
             ],
             "applications": [
@@ -38,7 +66,36 @@ def get_dashboard(
                     "major": app.major,
                     "status": app.status.value if app.status else None
                 } for app in apps
-            ]
+            ],
+            "tasks": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "description": task.description,
+                    "due": task.due_date.strftime("%b %d") if task.due_date else "No due date",
+                    "status": task.status.value,
+                    "priority": task.priority.value,
+                    "category": task.category,
+                    "icon": "/images/circle-alert.png" if task.priority.value in ["high", "urgent"] else "/images/check.png"
+                } for task in tasks
+            ],
+            "applicationsCount": total_applications,
+            "essays_complete": essays_complete,
+            "pings_remaining": pings_remaining,
+            # Mock data for other dashboard sections
+            "colleges": [
+                { "name": "Stanford University", "acceptance": "15%", "deadline": "Jan 5", "type": "REACH" },
+                { "name": "UC Berkeley", "acceptance": "65%", "deadline": "Nov 30", "type": "TARGET" },
+                { "name": "UCLA", "acceptance": "70%", "deadline": "Nov 30", "type": "TARGET" },
+                { "name": "University of Washington", "acceptance": "90%", "deadline": "Dec 15", "type": "SAFETY" },
+            ],
+            "subjects": ["Mathematics", "Biology", "Anthropology", "Computer Science", "Physics", "Environmental Science"],
+            "activity": [
+                { "title": "Essay feedback received", "by": "Dr. Sarah Chen", "time": "2 hours ago" },
+                { "title": "College list updated", "by": "You", "time": "1 day ago" },
+                { "title": "Interview prep session scheduled", "by": "Prof. Michael Rodriguez", "time": "2 days ago" },
+            ],
+            "nextSession": { "title": "Essay Review with Dr. Sarah Chen", "time": "Tomorrow at 3:00 PM" }
         }
 
     elif role == "consultant":
@@ -129,8 +186,17 @@ def get_college_dashboard(
             "status": application.status.value if application.status else "draft",
             "deadline": "Jan 5, 2026",  # This would come from a separate table
             "acceptance_rate": "3.9%",  # This would come from a separate table
-            "category": "REACH"  # This would be calculated based on student stats
+            "category": "REACH",  # This would be calculated based on student stats
+            "consultant_id": application.consultant_id  # Add consultant assignment
         },
+        "essays": [
+            {
+                "id": essay.id,
+                "prompt": essay.prompt,
+                "response": essay.response,
+                "last_edited": essay.last_edited.isoformat()
+            } for essay in essays
+        ],
         "progress": {
             "essays": {
                 "completed": completed_essays,

@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { api } from '../lib/api';
 
+interface Consultant {
+  id: number;
+  name: string;
+  email: string;
+}
+
 interface MatchingStatus {
   matching_completed: boolean;
   matched_applications: number;
@@ -17,6 +23,7 @@ interface MatchingStatus {
 
 const MatchingScreen: React.FC = () => {
   const [matchingStatus, setMatchingStatus] = useState<MatchingStatus | null>(null);
+  const [consultants, setConsultants] = useState<Record<number, Consultant>>({});
   const [isMatching, setIsMatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -25,11 +32,40 @@ const MatchingScreen: React.FC = () => {
     checkMatchingStatus();
   }, []);
 
+  const fetchConsultantDetails = async (consultantId: number) => {
+    try {
+      const { data } = await api.get(`/consultants/${consultantId}`);
+      return data;
+    } catch (error: any) {
+      console.error(`Error fetching consultant ${consultantId}:`, error);
+      return null;
+    }
+  };
+
+  const fetchAllConsultants = async (applications: MatchingStatus['applications']) => {
+    const consultantIds = applications
+      .filter(app => app.consultant_id)
+      .map(app => app.consultant_id);
+    
+    const uniqueIds = [...new Set(consultantIds)];
+    const consultantDetails: Record<number, Consultant> = {};
+    
+    for (const id of uniqueIds) {
+      const consultant = await fetchConsultantDetails(id);
+      if (consultant) {
+        consultantDetails[id] = consultant;
+      }
+    }
+    
+    setConsultants(consultantDetails);
+  };
+
   const checkMatchingStatus = async () => {
     try {
       const { data: status } = await api.get('/matching/matching-status');
       setMatchingStatus(status);
-      if (status.matching_completed) {
+      if (status.matching_completed && status.applications.length > 0) {
+        await fetchAllConsultants(status.applications);
         setIsMatching(false);
       }
     } catch (error) {
@@ -44,7 +80,7 @@ const MatchingScreen: React.FC = () => {
     try {
       const { data } = await api.post('/matching/start-matching');
       pollMatchingStatus();
-    } catch (error) {
+    } catch (error: any) {
       if (error.response?.data?.detail) {
         setError(error.response.data.detail);
       } else {
@@ -60,6 +96,9 @@ const MatchingScreen: React.FC = () => {
         const { data: status } = await api.get('/matching/matching-status');
         setMatchingStatus(status);
         if (status.matching_completed) {
+          if (status.applications.length > 0) {
+            await fetchAllConsultants(status.applications);
+          }
           setIsMatching(false);
           clearInterval(interval);
         }
@@ -137,6 +176,11 @@ const MatchingScreen: React.FC = () => {
                     <div>
                       <h3 className="font-semibold text-gray-900">{app.college_name}</h3>
                       <p className="text-gray-600">{app.major}</p>
+                      {app.consultant_id && consultants[app.consultant_id] && (
+                        <p className="text-blue-600 font-medium mt-1">
+                          Matched with: {consultants[app.consultant_id].name}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <div className="text-sm text-gray-500">Match Score</div>

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import students, pings, review, auth, dashboard, profile, matching_quiz, college_selection, matching, consultant_matching_quiz  # <- add new routers
+from .endpoints import students, pings, review, auth, dashboard, profile, matching_quiz, college_selection, matching, consultant_matching_quiz, consultants, tasks  # <- add new routers
 
 router = APIRouter()
 router.include_router(pings.router)
@@ -12,6 +12,8 @@ router.include_router(matching_quiz.router)
 router.include_router(college_selection.router)
 router.include_router(matching.router)
 router.include_router(consultant_matching_quiz.router)
+router.include_router(consultants.router)
+router.include_router(tasks.router)
 
 @router.get("/health")
 async def health():

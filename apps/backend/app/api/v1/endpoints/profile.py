@@ -8,14 +8,18 @@ router = APIRouter(tags=["profile"])
 # ───────── College profile view for a student ─────────
 @router.get("/college/{college_id}")
 def college_profile(college_id: int, db: Session = Depends(get_db), _: str = Depends(get_current_role)):
-    app = db.exec(select(CollegeApplication).where(CollegeApplication.college_id == college_id)).first()
+    # college_id here is actually the application_id
+    app = db.exec(select(CollegeApplication).where(CollegeApplication.id == college_id)).first()
     if not app:
         raise HTTPException(404, "Application not found")
 
     pings = db.exec(select(Ping).where(Ping.application_id == app.id)).all()
 
     return {
-        "college": db.get(College, college_id),
+        "college": {
+            "name": app.college_name,
+            "id": app.id
+        },
         "application": app,
         "pings": pings
     }
