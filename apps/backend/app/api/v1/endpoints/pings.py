@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, status, HTTPException, Header
+from fastapi import APIRouter, Depends, status, HTTPException, Header, Body
 from sqlmodel import Session, select
 from typing import List
 from pydantic import BaseModel
 from ..deps import get_db, get_current_user, get_current_role, get_current_consultant
-from app.db.models import Ping, CollegeApplication, Suggestion
+from app.db.models import Ping, CollegeApplication, Suggestion, Comment, Strikethrough, EssayResponse
 from app.schemas.ping import PingCreate
+from app.schemas.comments import CommentCreate, CommentRead
+from datetime import datetime
 
 router = APIRouter(prefix="/pings", tags=["pings"])
 
@@ -15,6 +17,11 @@ class SuggestionCreate(BaseModel):
     suggested_text: str
     comment: str
     author_id: int
+
+class StrikethroughCreate(BaseModel):
+    anchor_start: int
+    anchor_end: int
+    text: str
 
 # list
 @router.get("/", response_model=list[dict])
@@ -73,7 +80,6 @@ def get_ping(
     # Get essay by essay_id
     essay = None
     if ping.essay_id:
-        from app.db.models import EssayResponse
         essay = db.get(EssayResponse, ping.essay_id)
     # Get suggestions
     suggestions = db.exec(
@@ -208,3 +214,166 @@ def reject_suggestion(
     db.commit()
     
     return {"message": "Suggestion rejected"}
+
+# Comments endpoints
+@router.get("/{ping_id}/comments", response_model=List[CommentRead])
+def get_comments_for_ping(
+    ping_id: int,
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+):
+    comments = db.exec(select(Comment).where(Comment.ping_id == ping_id)).all()
+    return comments
+
+@router.post("/{ping_id}/comments", response_model=CommentRead)
+def add_comment_to_ping(
+    ping_id: int,
+    payload: CommentCreate,
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+    current_consultant = Depends(get_current_consultant),
+):
+    if role != "consultant":
+        raise HTTPException(403, "Only consultants may comment")
+    ping = db.get(Ping, ping_id)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    c = Comment(
+        body=payload.body,
+        anchor_start=payload.anchor_start,
+        anchor_end=payload.anchor_end,
+        ping_id=ping_id,
+        author_id=current_consultant.id,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+@router.post("/{ping_id}/comments/{comment_id}/resolve")
+def resolve_comment(
+    ping_id: int,
+    comment_id: int,
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+):
+    if role != "consultant":
+        raise HTTPException(403, "Only consultants may resolve comments")
+    comment = db.get(Comment, comment_id)
+    if not comment or comment.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    comment.resolved = True
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {"message": "Comment resolved"}
+
+@router.patch("/{ping_id}/comments/{comment_id}", response_model=CommentRead)
+def update_comment(
+    ping_id: int,
+    comment_id: int,
+    payload: dict = Body(...),
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+):
+    if role != "consultant":
+        raise HTTPException(403, "Only consultants may update comments")
+    comment = db.get(Comment, comment_id)
+    if not comment or comment.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if "body" in payload:
+        comment.body = payload["body"]
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+# Strikethrough endpoints
+@router.get("/{ping_id}/strikethroughs", response_model=List[dict])
+def get_strikethroughs_for_ping(
+    ping_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+):
+    sts = db.exec(select(Strikethrough).where(Strikethrough.ping_id == ping_id)).all()
+    return [
+        {
+            "id": s.id,
+            "anchor_start": s.anchor_start,
+            "anchor_end": s.anchor_end,
+            "text": s.text,
+            "author_id": s.author_id,
+            "created_at": s.created_at.isoformat(),
+        } for s in sts
+    ]
+
+@router.post("/{ping_id}/strikethroughs", response_model=dict)
+def create_strikethrough(
+    ping_id: int,
+    payload: StrikethroughCreate,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+    current_consultant = Depends(get_current_consultant),
+):
+    if role != "consultant":
+        raise HTTPException(403, "Only consultants may create strikethroughs")
+    ping = db.get(Ping, ping_id)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    s = Strikethrough(
+        ping_id=ping_id,
+        author_id=current_consultant.id,
+        anchor_start=payload.anchor_start,
+        anchor_end=payload.anchor_end,
+        text=payload.text,
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return {
+        "id": s.id,
+        "anchor_start": s.anchor_start,
+        "anchor_end": s.anchor_end,
+        "text": s.text,
+        "author_id": s.author_id,
+        "created_at": s.created_at.isoformat(),
+    }
+
+@router.post("/{ping_id}/strikethroughs/{strikethrough_id}/accept")
+def accept_strikethrough(
+    ping_id: int,
+    strikethrough_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+    current_user = Depends(get_current_user),
+):
+    st = db.get(Strikethrough, strikethrough_id)
+    if not st or st.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Strikethrough not found")
+    ping = db.get(Ping, ping_id)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    essay = db.get(EssayResponse, ping.essay_id)
+    if not essay:
+        raise HTTPException(status_code=404, detail="Essay not found")
+    # Remove the text from the essay
+    essay.response = essay.response[:st.anchor_start] + essay.response[st.anchor_end:]
+    essay.last_edited = datetime.utcnow()
+    db.add(essay)
+    db.delete(st)
+    db.commit()
+    return {"message": "Strikethrough accepted and essay updated"}
+
+@router.post("/{ping_id}/strikethroughs/{strikethrough_id}/reject")
+def reject_strikethrough(
+    ping_id: int,
+    strikethrough_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+):
+    st = db.get(Strikethrough, strikethrough_id)
+    if not st or st.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Strikethrough not found")
+    db.delete(st)
+    db.commit()
+    return {"message": "Strikethrough rejected and deleted"}

@@ -69,7 +69,12 @@ export default function PingDetail() {
   const [essayContent, setEssayContent] = useState("");
   const [highlights, setHighlights] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
   const [strikethroughs, setStrikethroughs] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
+  const [blueHighlights, setBlueHighlights] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; text: string; start: number; end: number } | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingStart, setTypingStart] = useState<number | null>(null);
+  const [typingText, setTypingText] = useState("");
+  const [highlightComments, setHighlightComments] = useState<{ [key: string]: string }>({});
   const essayRef = React.useRef<HTMLDivElement>(null);
 
   const { data: ping, mutate, error, isLoading } = useSWR<PingData>(
@@ -97,6 +102,70 @@ export default function PingDetail() {
       setEssayContent(ping.essay.response);
     }
   }, [ping?.essay?.response]);
+
+  useEffect(() => {
+    if (!query.pingId) return;
+    async function fetchComments() {
+      try {
+        const res = await api.get(`/pings/${query.pingId}/comments`);
+        const comments = res.data.filter((c: any) => !c.resolved);
+        setHighlights(
+          comments.map((c: any) => ({
+            id: String(c.id),
+            text: essayContent.slice(c.anchor_start, c.anchor_end),
+            start: c.anchor_start,
+            end: c.anchor_end
+          }))
+        );
+        setHighlightComments(
+          Object.fromEntries(comments.map((c: any) => [String(c.id), c.body]))
+        );
+      } catch (err) {
+        console.error("Failed to fetch comments:", err);
+      }
+    }
+    fetchComments();
+  }, [query.pingId, essayContent]);
+
+  // Fetch strikethroughs on page load
+  useEffect(() => {
+    if (!query.pingId) return;
+    async function fetchStrikethroughs() {
+      try {
+        const res = await api.get(`/pings/${query.pingId}/strikethroughs`);
+        const sts = res.data;
+        setStrikethroughs(
+          sts.map((s: any) => ({
+            id: String(s.id),
+            text: s.text,
+            start: s.anchor_start,
+            end: s.anchor_end
+          }))
+        );
+      } catch (err) {
+        console.error("Failed to fetch strikethroughs:", err);
+      }
+    }
+    fetchStrikethroughs();
+  }, [query.pingId]);
+
+  // Create a new strikethrough
+  const handleCreateStrikethrough = async (start: number, end: number, text: string) => {
+    try {
+      const res = await api.post(`/pings/${query.pingId}/strikethroughs`, {
+        anchor_start: start,
+        anchor_end: end,
+        text
+      });
+      const s = res.data;
+      setStrikethroughs(prev => [
+        ...prev,
+        { id: String(s.id), text: s.text, start: s.anchor_start, end: s.anchor_end }
+      ]);
+    } catch (err) {
+      console.error("Failed to create strikethrough:", err);
+    }
+  };
 
   // --- Highlight selection logic (consultant only) ---
   useEffect(() => {
@@ -130,9 +199,10 @@ export default function PingDetail() {
       // Get bounding rect for floating box
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      const containerRect = essayRef.current.getBoundingClientRect();
       setSelectionBox({
-        x: rect.right + window.scrollX,
-        y: rect.top + window.scrollY - 30,
+        x: rect.right - containerRect.left,
+        y: rect.top - containerRect.top - 30,
         text,
         start: absStart,
         end: absEnd,
@@ -159,14 +229,116 @@ export default function PingDetail() {
       if (absStart === -1) return;
       // Prevent duplicate strikethroughs
       if (strikethroughs.some(h => h.start === absStart && h.end === absEnd)) return;
-      setStrikethroughs([...strikethroughs, { id: Math.random().toString(36).slice(2), text, start: absStart, end: absEnd }]);
+      
+      // Call the API to create the strikethrough in the database
+      handleCreateStrikethrough(absStart, absEnd, text);
+      
       window.getSelection()?.removeAllRanges();
       setSelectionBox(null);
       e.preventDefault();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [essayContent, role, strikethroughs, setSelectionBox]);
+  }, [essayContent, role, strikethroughs, setSelectionBox, handleCreateStrikethrough]);
+
+  // --- Cursor placement and typing logic (consultant only) ---
+  useEffect(() => {
+    if (role !== "consultant") return;
+    
+    // Replace the existing double-click handler in your useEffect with this:
+
+    const handleDoubleClick = (e: MouseEvent) => {
+      if (!essayRef.current || !essayRef.current.contains(e.target as Node)) return;
+      if (isTyping) return;
+      
+      // Clear any existing selection
+      window.getSelection()?.removeAllRanges();
+      setSelectionBox(null);
+      setIsTyping(true);
+      setTypingText("");
+      
+      // Get the click position more accurately
+      let clickOffset = 0;
+      
+      // Create a range at the click position
+      const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (range && essayRef.current.contains(range.startContainer)) {
+        // Calculate offset from the beginning of the essay content
+        const walker = document.createTreeWalker(
+          essayRef.current,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+        
+        let currentNode = walker.nextNode();
+        let totalOffset = 0;
+        
+        while (currentNode) {
+          if (currentNode === range.startContainer) {
+            clickOffset = totalOffset + range.startOffset;
+            break;
+          }
+          totalOffset += currentNode.textContent?.length || 0;
+          currentNode = walker.nextNode();
+        }
+      } else {
+        // Fallback: if we can't determine position, use the click coordinates
+        // to estimate position relative to the text
+        const rect = essayRef.current.getBoundingClientRect();
+        const relativeY = e.clientY - rect.top;
+        const lineHeight = 24; // Approximate line height
+        const lineIndex = Math.floor(relativeY / lineHeight);
+        
+        // Rough estimate - this is a fallback
+        const lines = essayContent.split('\n');
+        let estimatedOffset = 0;
+        for (let i = 0; i < Math.min(lineIndex, lines.length); i++) {
+          estimatedOffset += lines[i].length + 1; // +1 for newline
+        }
+        clickOffset = Math.min(estimatedOffset, essayContent.length);
+      }
+      
+      setTypingStart(clickOffset);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isTyping || typingStart === null) return;
+      if (e.key === "Escape") {
+        setIsTyping(false);
+        setTypingStart(null);
+        setTypingText("");
+        return;
+      }
+      if (e.key === "Enter") {
+        if (typingText.trim()) {
+          const newBlueHighlight = {
+            id: Math.random().toString(36).slice(2),
+            text: typingText,
+            start: typingStart,
+            end: typingStart + typingText.length
+          };
+          setBlueHighlights([...blueHighlights, newBlueHighlight]);
+          setEssayContent(prev => prev.slice(0, typingStart) + typingText + prev.slice(typingStart));
+        }
+        setIsTyping(false);
+        setTypingStart(null);
+        setTypingText("");
+        return;
+      }
+      if (e.key === "Backspace") {
+        setTypingText(prev => prev.slice(0, -1));
+        return;
+      }
+      if (e.key.length === 1) {
+        setTypingText(prev => prev + e.key);
+      }
+    };
+    document.addEventListener("dblclick", handleDoubleClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("dblclick", handleDoubleClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [role, isTyping, typingStart, typingText, blueHighlights, essayContent]);
 
   // --- Highlight action ---
   const handleHighlight = () => {
@@ -182,17 +354,88 @@ export default function PingDetail() {
   };
 
   // --- Remove highlight (resolve) ---
-  const handleResolve = (id: string) => {
+  const handleResolve = async (id: string) => {
+    try {
+      await api.post(`/pings/${query.pingId}/comments/${id}/resolve`);
+    } catch (err) {
+      console.error("Failed to resolve comment:", err);
+    }
     setHighlights(highlights.filter(h => h.id !== id));
+    // Also remove the comment
+    const newComments = { ...highlightComments };
+    delete newComments[id];
+    setHighlightComments(newComments);
+  };
+
+  // --- Save highlight comment ---
+  const handleSaveHighlightComment = async (id: string, comment: string, blur: boolean = false) => {
+    setHighlightComments(prev => ({
+      ...prev,
+      [id]: comment
+    }));
+    const highlight = highlights.find(h => h.id === id);
+    if (!highlight || !comment.trim()) return;
+    if (isNaN(Number(id))) {
+      // New highlight: POST
+      try {
+        const res = await api.post(`/pings/${query.pingId}/comments`, {
+          anchor_start: highlight.start,
+          anchor_end: highlight.end,
+          body: comment
+        });
+        const backendId = String(res.data.id);
+        setHighlights(hs => hs.map(h => h.id === id ? { ...h, id: backendId } : h));
+        setHighlightComments(prev => {
+          const newComments = { ...prev };
+          newComments[backendId] = newComments[id];
+          delete newComments[id];
+          return newComments;
+        });
+      } catch (err) {
+        console.error("Failed to save comment to backend:", err);
+      }
+    } else if (blur) {
+      // Existing highlight: PATCH on blur
+      try {
+        await api.patch(`/pings/${query.pingId}/comments/${id}`, { body: comment });
+      } catch (err) {
+        console.error("Failed to update comment in backend:", err);
+      }
+    }
+  };
+
+  // --- Remove blue highlight ---
+  const handleRemoveBlueHighlight = (id: string) => {
+    const highlight = blueHighlights.find(h => h.id === id);
+    if (highlight) {
+      // Remove the text from essay content
+      setEssayContent(prev => 
+        prev.slice(0, highlight.start) + prev.slice(highlight.end)
+      );
+      // Remove the highlight
+      setBlueHighlights(blueHighlights.filter(h => h.id !== id));
+    }
   };
 
   // --- Render essay with highlights and strikethroughs ---
   function renderEssayWithAll(text: string) {
-    // Merge highlights and strikethroughs into a single array
-    const all = [
+    // Merge highlights, strikethroughs, and blue highlights into a single array
+    type HighlightType = { id: string; text: string; start: number; end: number; type: 'highlight' | 'strike' | 'blue' | 'typing' };
+    const all: HighlightType[] = [
       ...highlights.map(h => ({ ...h, type: "highlight" as const })),
       ...strikethroughs.map(h => ({ ...h, type: "strike" as const })),
+      ...blueHighlights.map(h => ({ ...h, type: "blue" as const })),
     ];
+    // If typing, inject a fake highlight at the typingStart
+    if (isTyping && typingStart !== null) {
+      all.push({
+        id: "__typing__",
+        text: typingText,
+        start: typingStart,
+        end: typingStart + typingText.length,
+        type: "typing",
+      });
+    }
     if (!all.length) return text;
     // Sort by start
     const sorted = [...all].sort((a, b) => a.start - b.start);
@@ -212,6 +455,19 @@ export default function PingDetail() {
         nodes.push(
           <span key={h.id} className="bg-white/30 text-white line-through rounded px-1 cursor-pointer">
             {text.slice(h.start, h.end)}
+          </span>
+        );
+      } else if (h.type === "blue") {
+        nodes.push(
+          <span key={h.id} className="bg-blue-200 text-blue-900 rounded px-1 cursor-pointer">
+            {text.slice(h.start, h.end)}
+          </span>
+        );
+      } else if (h.type === "typing") {
+        nodes.push(
+          <span key={h.id} className="bg-blue-200 text-blue-900 rounded px-1 animate-pulse">
+            {typingText}
+            <span className="animate-blink">|</span>
           </span>
         );
       }
@@ -338,6 +594,47 @@ export default function PingDetail() {
     }
   };
 
+  // Accept a strikethrough
+  const handleAcceptStrikethrough = async (id: string) => {
+    try {
+      await api.post(`/pings/${query.pingId}/strikethroughs/${id}/accept`);
+      // Re-fetch essay and strikethroughs
+      mutate(); // re-fetch ping/essay
+      const res = await api.get(`/pings/${query.pingId}/strikethroughs`);
+      const sts = res.data;
+      setStrikethroughs(
+        sts.map((s: any) => ({
+          id: String(s.id),
+          text: s.text,
+          start: s.anchor_start,
+          end: s.anchor_end
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to accept strikethrough:", err);
+    }
+  };
+
+  // Reject a strikethrough
+  const handleRejectStrikethrough = async (id: string) => {
+    try {
+      await api.post(`/pings/${query.pingId}/strikethroughs/${id}/reject`);
+      // Re-fetch strikethroughs
+      const res = await api.get(`/pings/${query.pingId}/strikethroughs`);
+      const sts = res.data;
+      setStrikethroughs(
+        sts.map((s: any) => ({
+          id: String(s.id),
+          text: s.text,
+          start: s.anchor_start,
+          end: s.anchor_end
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to reject strikethrough:", err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] font-['-apple-system',BlinkMacSystemFont,'Segoe_UI',Montserrat,sans-serif] text-[#1f2937] leading-[1.6]">
       {/* Navigation */}
@@ -430,13 +727,15 @@ export default function PingDetail() {
                     placeholder="Write your essay here..."
                   />
                 ) : (
-                  <div>{renderEssayWithAll(essayContent || "No essay content yet.")}</div>
+                  <div>
+                    {renderEssayWithAll(essayContent || "No essay content yet.")}
+                  </div>
                 )}
                 {/* Floating action box for highlight */}
                 {role === "consultant" && selectionBox && (
                   <div
                     className="absolute z-50 bg-white text-gray-900 rounded shadow-lg flex items-center gap-2 px-2 py-1 border border-gray-200"
-                    style={{ left: selectionBox.x - essayRef.current!.getBoundingClientRect().left, top: selectionBox.y - essayRef.current!.getBoundingClientRect().top }}
+                    style={{ left: selectionBox.x, top: selectionBox.y }}
                   >
                     <button
                       className="hover:bg-yellow-100 rounded p-1"
@@ -445,6 +744,20 @@ export default function PingDetail() {
                     >
                       <FaHighlighter className="text-yellow-500" />
                     </button>
+                  </div>
+                )}
+                
+                {/* Typing mode indicator */}
+                {role === "consultant" && isTyping && (
+                  <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium animate-pulse shadow-lg">
+                    Typing Mode - Press Enter to finish, Esc to cancel
+                  </div>
+                )}
+                
+                {/* Instructions for typing mode */}
+                {role === "consultant" && !isTyping && (
+                  <div className="absolute bottom-2 left-2 bg-white/10 text-white/70 px-3 py-1 rounded-lg text-xs">
+                    Double-click anywhere to add text
                   </div>
                 )}
               </div>
@@ -480,83 +793,10 @@ export default function PingDetail() {
 
             {/* Suggestions Sidebar */}
             <div className="flex-1 max-w-[300px]">
-              {role === "consultant" && (
-                <button 
-                  onClick={() => setShowSuggestionForm(!showSuggestionForm)}
-                  className="bg-gradient-to-r from-[#f59e0b] to-[#d97706] text-white border-none py-3 px-4 rounded-lg cursor-pointer font-medium transition-all duration-300 w-full mb-4 text-sm hover:-translate-y-[2px] hover:shadow-[0_8px_20px_rgba(245,158,11,0.4)]"
-                >
-                  + Add Suggestion
-                </button>
-              )}
-
-              {/* Suggestion Form */}
-              {showSuggestionForm && role === "consultant" && (
-                <div className="bg-[rgba(139,92,246,0.15)] backdrop-blur-[10px] rounded-xl p-4 border border-white/10 mb-4 text-sm leading-[1.5] transition-all duration-300">
-                  <div className="mb-4">
-                    <label className="block text-white font-semibold mb-2">Suggestion Type</label>
-                    <select
-                      value={suggestionType}
-                      onChange={(e) => setSuggestionType(e.target.value as any)}
-                      className="w-full p-3 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white focus:outline-none"
-                    >
-                      <option value="grammar">Grammar</option>
-                      <option value="style">Style</option>
-                      <option value="content">Content</option>
-                      <option value="structure">Structure</option>
-                    </select>
-                  </div>
-                  
-                  <div className="space-y-4 mb-4">
-                    <div>
-                      <label className="block text-white font-semibold mb-2">Original Text</label>
-                      <textarea
-                        value={originalText}
-                        onChange={(e) => setOriginalText(e.target.value)}
-                        placeholder="Enter the original text..."
-                        className="w-full p-3 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white focus:outline-none resize-none"
-                        rows={3}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-white font-semibold mb-2">Suggested Text</label>
-                      <textarea
-                        value={suggestedText}
-                        onChange={(e) => setSuggestedText(e.target.value)}
-                        placeholder="Enter your suggestion..."
-                        className="w-full p-3 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white focus:outline-none resize-none"
-                        rows={3}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-white font-semibold mb-2">Comment</label>
-                      <textarea
-                        value={suggestionComment}
-                        onChange={(e) => setSuggestionComment(e.target.value)}
-                        placeholder="Add a comment explaining your suggestion..."
-                        className="w-full p-3 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white focus:outline-none resize-none"
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                    <button 
-                      onClick={handleAddSuggestion} 
-                      className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-300"
-                    >
-                      Add Suggestion
-                    </button>
-                    <button
-                      onClick={() => setShowSuggestionForm(false)}
-                      className="bg-white/10 border border-white/20 text-white px-6 py-2 rounded-lg font-semibold hover:bg-white/20 transition-all duration-300"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Comments & Suggestions Header */}
+              <div className="bg-gradient-to-r from-[#f59e0b] to-[#d97706] text-white border-none py-3 px-4 rounded-lg font-medium text-center mb-4 text-sm">
+                Comments & Suggestions
+              </div>
 
               {/* Highlighted comments sidebar */}
               {role === "consultant" && highlights.length > 0 && (
@@ -564,10 +804,21 @@ export default function PingDetail() {
                   {highlights.map(h => (
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="bg-yellow-200 text-yellow-900 text-xs font-bold px-2 py-1 rounded">Highlight</span>
+                        <span className="bg-yellow-200 text-yellow-900 text-xs font-bold px-2 py-1 rounded">Comment</span>
                         <button onClick={() => handleResolve(h.id)} className="ml-auto text-xs text-gray-300 hover:text-green-500">Mark as resolved</button>
                       </div>
-                      <div className="text-yellow-100 text-sm">{h.text}</div>
+                      <div className="text-yellow-100 text-sm mb-3">{h.text}</div>
+                      <div className="space-y-2">
+                        <label className="block text-white/80 text-xs font-medium">Add comment:</label>
+                        <textarea
+                          value={highlightComments[h.id] || ""}
+                          onChange={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
+                          placeholder="Type your comment here..."
+                          className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
+                          rows={2}
+                          onBlur={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -579,27 +830,46 @@ export default function PingDetail() {
                   {strikethroughs.map(h => (
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="bg-white/30 text-white text-xs font-bold px-2 py-1 rounded line-through">Delete</span>
+                        <span className="bg-white/30 text-white text-xs font-bold px-2 py-1 rounded">Delete</span>
                       </div>
                       <div className="text-white/80 text-sm line-through mb-2">{h.text}</div>
                       <div className="flex gap-2 mt-2">
                         <button
-                          onClick={() => {
-                            // Remove the text from essayContent and remove the strikethrough
-                            setEssayContent(prev => prev.slice(0, h.start) + prev.slice(h.end));
-                            setStrikethroughs(strikethroughs.filter(s => s.id !== h.id));
-                          }}
-                          className="bg-green-600/80 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-green-600 transition-all duration-300 hover:scale-105"
+                          onClick={() => handleAcceptStrikethrough(h.id)}
+                          disabled={role === "consultant"}
+                          className={`px-3 py-1 rounded text-xs font-semibold transition-all duration-300 hover:scale-105 ${
+                            role === "consultant" 
+                              ? "bg-green-600/30 text-green-300 cursor-not-allowed" 
+                              : "bg-green-600/80 text-white hover:bg-green-600"
+                          }`}
+                          title={role === "consultant" ? "Only students can accept strikethroughs" : "Accept this strikethrough"}
                         >
                           Accept
                         </button>
                         <button
-                          onClick={() => setStrikethroughs(strikethroughs.filter(s => s.id !== h.id))}
-                          className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105"
+                          onClick={() => handleRejectStrikethrough(h.id)}
+                          className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105 flex items-center gap-1"
+                          title="Remove this strikethrough"
                         >
-                          Reject
+                          <span>🗑️</span>
+                          Remove
                         </button>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Blue highlights (typed text) */}
+              {role === "consultant" && blueHighlights.length > 0 && (
+                <div className="space-y-4 mb-4">
+                  {blueHighlights.map(h => (
+                    <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="bg-blue-200 text-blue-900 text-xs font-bold px-2 py-1 rounded">Suggestion</span>
+                        <button onClick={() => handleRemoveBlueHighlight(h.id)} className="ml-auto text-xs text-gray-300 hover:text-red-500">Remove</button>
+                      </div>
+                      <div className="text-blue-100 text-sm">{h.text}</div>
                     </div>
                   ))}
                 </div>

@@ -271,6 +271,17 @@ class Suggestion(SQLModel, table=True):
 
     ping: "Ping" = Relationship(back_populates="suggestions")
 
+class Strikethrough(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ping_id: int = Field(foreign_key="ping.id")
+    author_id: int = Field(foreign_key="consultant.id")
+    anchor_start: int
+    anchor_end: int
+    text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    ping: "Ping" = Relationship()
+
 # Popular colleges for selection
 POPULAR_COLLEGES = [
     "Harvard University",
