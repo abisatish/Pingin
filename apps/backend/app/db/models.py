@@ -244,6 +244,7 @@ class Ping(SQLModel, table=True):
     application: "CollegeApplication" = Relationship(back_populates="pings")
     comments: List["Comment"] = Relationship(back_populates="ping")
     suggestions: List["Suggestion"] = Relationship(back_populates="ping")
+    additions: List["Addition"] = Relationship(back_populates="ping")
     essay: Optional["EssayResponse"] = Relationship()
 
 class Comment(SQLModel, table=True):
@@ -281,6 +282,17 @@ class Strikethrough(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     ping: "Ping" = Relationship()
+
+class Addition(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ping_id: int = Field(foreign_key="ping.id")
+    author_id: int = Field(foreign_key="consultant.id")
+    anchor_start: int  # Position where text should be inserted
+    text: str  # Text to be inserted
+    accepted: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    ping: "Ping" = Relationship(back_populates="additions")
 
 # Popular colleges for selection
 POPULAR_COLLEGES = [

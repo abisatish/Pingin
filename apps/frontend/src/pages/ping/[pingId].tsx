@@ -69,7 +69,7 @@ export default function PingDetail() {
   const [essayContent, setEssayContent] = useState("");
   const [highlights, setHighlights] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
   const [strikethroughs, setStrikethroughs] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
-  const [blueHighlights, setBlueHighlights] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
+  const [additions, setAdditions] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; text: string; start: number; end: number } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingStart, setTypingStart] = useState<number | null>(null);
@@ -109,6 +109,7 @@ export default function PingDetail() {
       try {
         const res = await api.get(`/pings/${query.pingId}/comments`);
         const comments = res.data.filter((c: any) => !c.resolved);
+        console.log("Fetched comments:", comments);
         setHighlights(
           comments.map((c: any) => ({
             id: String(c.id),
@@ -149,6 +150,28 @@ export default function PingDetail() {
     fetchStrikethroughs();
   }, [query.pingId]);
 
+  // Fetch additions on page load
+  useEffect(() => {
+    if (!query.pingId) return;
+    async function fetchAdditions() {
+      try {
+        const res = await api.get(`/pings/${query.pingId}/additions`);
+        const adds = res.data;
+        setAdditions(
+          adds.map((a: any) => ({
+            id: String(a.id),
+            text: a.text,
+            start: a.anchor_start,
+            end: a.anchor_start + a.text.length
+          }))
+        );
+      } catch (err) {
+        console.error("Failed to fetch additions:", err);
+      }
+    }
+    fetchAdditions();
+  }, [query.pingId]);
+
   // Create a new strikethrough
   const handleCreateStrikethrough = async (start: number, end: number, text: string) => {
     try {
@@ -171,46 +194,145 @@ export default function PingDetail() {
   useEffect(() => {
     if (role !== "consultant") return;
     const handleMouseUp = (e: MouseEvent) => {
-      const selection = window.getSelection();
-      if (!selection || !essayRef.current) return;
-      if (!essayRef.current.contains(selection.anchorNode) || selection.isCollapsed) {
-        setSelectionBox(null);
-        return;
-      }
-      const text = selection.toString();
-      if (!text.trim()) {
-        setSelectionBox(null);
-        return;
-      }
-      // Find start and end index relative to essay text
-      const essayText = essayContent;
-      const anchorOffset = selection.anchorOffset;
-      const focusOffset = selection.focusOffset;
-      let start = Math.min(anchorOffset, focusOffset);
-      let end = Math.max(anchorOffset, focusOffset);
-      // Try to get the absolute index in essay text
-      // (for MVP, just use essayText.indexOf(text))
-      const absStart = essayText.indexOf(text);
-      const absEnd = absStart + text.length;
-      if (absStart === -1) {
-        setSelectionBox(null);
-        return;
-      }
-      // Get bounding rect for floating box
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const containerRect = essayRef.current.getBoundingClientRect();
-      setSelectionBox({
-        x: rect.right - containerRect.left,
-        y: rect.top - containerRect.top - 30,
-        text,
-        start: absStart,
-        end: absEnd,
-      });
+      // Small delay to ensure selection is complete
+      setTimeout(() => {
+        const selection = window.getSelection();
+        if (!selection || !essayRef.current) return;
+        
+        // Check if the selection is within our essay container
+        const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        if (!range || !essayRef.current.contains(range.commonAncestorContainer)) {
+          setSelectionBox(null);
+          return;
+        }
+        
+        if (selection.isCollapsed) {
+          setSelectionBox(null);
+          return;
+        }
+        
+        const selectedText = selection.toString();
+        if (!selectedText.trim()) {
+          setSelectionBox(null);
+          return;
+        }
+        
+        // Try simple search first
+        let startPos = essayContent.indexOf(selectedText);
+        let endPos = startPos + selectedText.length;
+        
+        // If simple search fails, we need to calculate position accounting for additions
+        if (startPos === -1) {
+          console.log("Simple search failed, using complex position calculation");
+          
+          // Build a map of visual position to original text position
+          const positionMap: { visualPos: number; originalPos: number }[] = [];
+          let visualPos = 0;
+          let originalPos = 0;
+          
+          // First, map out the original text positions
+          for (let i = 0; i < essayContent.length; i++) {
+            positionMap.push({ visualPos, originalPos: i });
+            visualPos++;
+            originalPos = i + 1;
+          }
+          
+          // Now adjust for additions (they add visual positions but not original positions)
+          const sortedAdditions = [...additions].sort((a, b) => a.start - b.start);
+          for (const addition of sortedAdditions) {
+            // Find where this addition appears in our position map
+            const insertIndex = positionMap.findIndex(p => p.originalPos > addition.start);
+            if (insertIndex !== -1) {
+              // Shift all visual positions after this addition
+              for (let i = insertIndex; i < positionMap.length; i++) {
+                positionMap[i].visualPos += addition.text.length;
+              }
+            }
+          }
+          
+          // Now find where our selection starts and ends in the visual space
+          const walker = document.createTreeWalker(
+            essayRef.current,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          
+          let node;
+          let currentVisualPos = 0;
+          let foundStart = false;
+          let visualStartPos = -1;
+          let visualEndPos = -1;
+          
+          while (node = walker.nextNode()) {
+            const nodeText = node.textContent || '';
+            
+            if (!foundStart && range.startContainer === node) {
+              visualStartPos = currentVisualPos + range.startOffset;
+              foundStart = true;
+            }
+            
+            if (range.endContainer === node) {
+              visualEndPos = currentVisualPos + range.endOffset;
+              break;
+            }
+            
+            currentVisualPos += nodeText.length;
+          }
+          
+          // Convert visual positions back to original text positions
+          if (visualStartPos !== -1 && visualEndPos !== -1) {
+            // Find the closest original position for start
+            const startMapping = positionMap.reduce((prev, curr) => 
+              Math.abs(curr.visualPos - visualStartPos) < Math.abs(prev.visualPos - visualStartPos) ? curr : prev
+            );
+            
+            const endMapping = positionMap.reduce((prev, curr) => 
+              Math.abs(curr.visualPos - visualEndPos) < Math.abs(prev.visualPos - visualEndPos) ? curr : prev
+            );
+            
+            startPos = startMapping.originalPos;
+            endPos = endMapping.originalPos;
+            
+            // Verify the text matches
+            const extractedText = essayContent.slice(startPos, endPos);
+            if (extractedText !== selectedText) {
+              // Try to find the exact text near our calculated position
+              const searchStart = Math.max(0, startPos - 10);
+              const searchEnd = Math.min(essayContent.length, endPos + 10);
+              const searchArea = essayContent.slice(searchStart, searchEnd);
+              const foundIndex = searchArea.indexOf(selectedText);
+              
+              if (foundIndex !== -1) {
+                startPos = searchStart + foundIndex;
+                endPos = startPos + selectedText.length;
+              }
+            }
+          }
+        }
+        
+        if (startPos === -1 || endPos === -1) {
+          console.error("Could not find selected text position", { selectedText, startPos, endPos });
+          setSelectionBox(null);
+          return;
+        }
+        
+        // Get bounding rect for floating box
+        const rect = range.getBoundingClientRect();
+        const containerRect = essayRef.current.getBoundingClientRect();
+        
+        setSelectionBox({
+          x: rect.right - containerRect.left + 10,
+          y: rect.top - containerRect.top - 30,
+          text: selectedText,
+          start: startPos,
+          end: endPos,
+        });
+      }, 10);
     };
+    
     document.addEventListener("mouseup", handleMouseUp);
     return () => document.removeEventListener("mouseup", handleMouseUp);
-  }, [essayContent, role]);
+  }, [essayContent, role, additions]);
 
   // --- Strikethrough selection logic (consultant only) ---
   useEffect(() => {
@@ -245,8 +367,6 @@ export default function PingDetail() {
   useEffect(() => {
     if (role !== "consultant") return;
     
-    // Replace the existing double-click handler in your useEffect with this:
-
     const handleDoubleClick = (e: MouseEvent) => {
       if (!essayRef.current || !essayRef.current.contains(e.target as Node)) return;
       if (isTyping) return;
@@ -254,103 +374,170 @@ export default function PingDetail() {
       // Clear any existing selection
       window.getSelection()?.removeAllRanges();
       setSelectionBox(null);
-      setIsTyping(true);
-      setTypingText("");
       
-      // Get the click position more accurately
       let clickOffset = 0;
       
-      // Create a range at the click position
+      // Get the exact position using caretRangeFromPoint
       const range = document.caretRangeFromPoint(e.clientX, e.clientY);
       if (range && essayRef.current.contains(range.startContainer)) {
-        // Calculate offset from the beginning of the essay content
-        const walker = document.createTreeWalker(
-          essayRef.current,
-          NodeFilter.SHOW_TEXT,
-          null
-        );
+        const container = range.startContainer;
+        const offset = range.startOffset;
         
-        let currentNode = walker.nextNode();
-        let totalOffset = 0;
-        
-        while (currentNode) {
-          if (currentNode === range.startContainer) {
-            clickOffset = totalOffset + range.startOffset;
-            break;
+        // Helper function to get text content up to a certain node
+        const getOffsetInOriginalText = (): number => {
+          let textSoFar = '';
+          let countOffset = 0;
+          
+          // Get all text nodes in order
+          const walker = document.createTreeWalker(
+            essayRef.current!,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          
+          let node;
+          let found = false;
+          
+          while (node = walker.nextNode()) {
+            if (node === container) {
+              // Found our target node
+              countOffset += offset;
+              found = true;
+              break;
+            } else {
+              // Add the full text of this node
+              const nodeText = node.textContent || '';
+              
+              // Check if this text exists in our original essay at the current position
+              const remainingEssay = essayContent.substring(countOffset);
+              const indexInRemaining = remainingEssay.indexOf(nodeText);
+              
+              if (indexInRemaining === 0) {
+                // This text is at the current position in the original
+                countOffset += nodeText.length;
+              } else if (indexInRemaining > 0) {
+                // This text appears later, so we need to account for a gap
+                countOffset += indexInRemaining + nodeText.length;
+              } else {
+                // This is likely inserted text (addition/typing), skip it
+                continue;
+              }
+            }
           }
-          totalOffset += currentNode.textContent?.length || 0;
-          currentNode = walker.nextNode();
-        }
-      } else {
-        // Fallback: if we can't determine position, use the click coordinates
-        // to estimate position relative to the text
-        const rect = essayRef.current.getBoundingClientRect();
-        const relativeY = e.clientY - rect.top;
-        const lineHeight = 24; // Approximate line height
-        const lineIndex = Math.floor(relativeY / lineHeight);
+          
+          if (!found) {
+            // Clicked on something weird, just use the end
+            countOffset = essayContent.length;
+          }
+          
+          return Math.min(Math.max(0, countOffset), essayContent.length);
+        };
         
-        // Rough estimate - this is a fallback
-        const lines = essayContent.split('\n');
-        let estimatedOffset = 0;
-        for (let i = 0; i < Math.min(lineIndex, lines.length); i++) {
-          estimatedOffset += lines[i].length + 1; // +1 for newline
-        }
-        clickOffset = Math.min(estimatedOffset, essayContent.length);
+        clickOffset = getOffsetInOriginalText();
+      } else {
+        // Fallback to start of text
+        clickOffset = 0;
       }
       
+      // Start typing mode
+      setIsTyping(true);
       setTypingStart(clickOffset);
+      setTypingText("");
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isTyping || typingStart === null) return;
+      
       if (e.key === "Escape") {
         setIsTyping(false);
         setTypingStart(null);
         setTypingText("");
         return;
       }
+      
       if (e.key === "Enter") {
         if (typingText.trim()) {
-          const newBlueHighlight = {
-            id: Math.random().toString(36).slice(2),
-            text: typingText,
-            start: typingStart,
-            end: typingStart + typingText.length
-          };
-          setBlueHighlights([...blueHighlights, newBlueHighlight]);
-          setEssayContent(prev => prev.slice(0, typingStart) + typingText + prev.slice(typingStart));
+          // Create the addition
+          handleCreateAddition(typingStart, typingText);
         }
         setIsTyping(false);
         setTypingStart(null);
         setTypingText("");
         return;
       }
+      
       if (e.key === "Backspace") {
         setTypingText(prev => prev.slice(0, -1));
+        e.preventDefault();
         return;
       }
-      if (e.key.length === 1) {
+      
+      // Only add printable characters
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
         setTypingText(prev => prev + e.key);
+        e.preventDefault(); // Prevent default to avoid affecting the document
       }
     };
+    
     document.addEventListener("dblclick", handleDoubleClick);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("dblclick", handleDoubleClick);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [role, isTyping, typingStart, typingText, blueHighlights, essayContent]);
+  }, [role, isTyping, typingStart, typingText, essayContent]);
 
   // --- Highlight action ---
-  const handleHighlight = () => {
+  const handleHighlight = async () => {
     if (!selectionBox) return;
+    
     // Prevent duplicate highlights
     if (highlights.some(h => h.start === selectionBox.start && h.end === selectionBox.end)) {
       setSelectionBox(null);
+      window.getSelection()?.removeAllRanges();
       return;
     }
-    setHighlights([...highlights, { id: Math.random().toString(36).slice(2), text: selectionBox.text, start: selectionBox.start, end: selectionBox.end }]);
+    
+    // Save the selection data before clearing
+    const selectionData = {
+      text: selectionBox.text,
+      start: selectionBox.start,
+      end: selectionBox.end
+    };
+    
+    // Clear selection box and browser selection immediately
     setSelectionBox(null);
     window.getSelection()?.removeAllRanges();
+    
+    try {
+      // Save to backend first with empty comment
+      const res = await api.post(`/pings/${query.pingId}/comments`, {
+        anchor_start: selectionData.start,
+        anchor_end: selectionData.end,
+        body: "" // Empty comment initially
+      });
+      
+      const backendId = String(res.data.id);
+      
+      // Add the highlight with the backend ID
+      const newHighlight = { 
+        id: backendId, 
+        text: selectionData.text, 
+        start: selectionData.start, 
+        end: selectionData.end 
+      };
+      
+      setHighlights(prev => [...prev, newHighlight]);
+      
+      // Initialize empty comment for this highlight
+      setHighlightComments(prev => ({
+        ...prev,
+        [backendId]: ""
+      }));
+      
+    } catch (err) {
+      console.error("Failed to save highlight:", err);
+      alert("Failed to create highlight. Please try again.");
+    }
   };
 
   // --- Remove highlight (resolve) ---
@@ -368,34 +555,15 @@ export default function PingDetail() {
   };
 
   // --- Save highlight comment ---
-  const handleSaveHighlightComment = async (id: string, comment: string, blur: boolean = false) => {
+  const handleSaveHighlightComment = async (id: string, comment: string) => {
+    // Update local state immediately
     setHighlightComments(prev => ({
       ...prev,
       [id]: comment
     }));
-    const highlight = highlights.find(h => h.id === id);
-    if (!highlight || !comment.trim()) return;
-    if (isNaN(Number(id))) {
-      // New highlight: POST
-      try {
-        const res = await api.post(`/pings/${query.pingId}/comments`, {
-          anchor_start: highlight.start,
-          anchor_end: highlight.end,
-          body: comment
-        });
-        const backendId = String(res.data.id);
-        setHighlights(hs => hs.map(h => h.id === id ? { ...h, id: backendId } : h));
-        setHighlightComments(prev => {
-          const newComments = { ...prev };
-          newComments[backendId] = newComments[id];
-          delete newComments[id];
-          return newComments;
-        });
-      } catch (err) {
-        console.error("Failed to save comment to backend:", err);
-      }
-    } else if (blur) {
-      // Existing highlight: PATCH on blur
+    
+    // Only send PATCH request if it's an existing highlight (numeric ID)
+    if (!isNaN(Number(id))) {
       try {
         await api.patch(`/pings/${query.pingId}/comments/${id}`, { body: comment });
       } catch (err) {
@@ -404,78 +572,98 @@ export default function PingDetail() {
     }
   };
 
-  // --- Remove blue highlight ---
-  const handleRemoveBlueHighlight = (id: string) => {
-    const highlight = blueHighlights.find(h => h.id === id);
-    if (highlight) {
-      // Remove the text from essay content
-      setEssayContent(prev => 
-        prev.slice(0, highlight.start) + prev.slice(highlight.end)
-      );
-      // Remove the highlight
-      setBlueHighlights(blueHighlights.filter(h => h.id !== id));
-    }
-  };
-
   // --- Render essay with highlights and strikethroughs ---
   function renderEssayWithAll(text: string) {
-    // Merge highlights, strikethroughs, and blue highlights into a single array
-    type HighlightType = { id: string; text: string; start: number; end: number; type: 'highlight' | 'strike' | 'blue' | 'typing' };
-    const all: HighlightType[] = [
+    // Prepare all overlays (highlights, strikethroughs, additions)
+    type OverlayType = { 
+      id: string; 
+      text: string; 
+      start: number; 
+      end: number; 
+      type: 'highlight' | 'strike' | 'addition' | 'typing' 
+    };
+    
+    let overlays: OverlayType[] = [
       ...highlights.map(h => ({ ...h, type: "highlight" as const })),
       ...strikethroughs.map(h => ({ ...h, type: "strike" as const })),
-      ...blueHighlights.map(h => ({ ...h, type: "blue" as const })),
+      ...additions.map(a => ({ ...a, type: "addition" as const })),
     ];
-    // If typing, inject a fake highlight at the typingStart
+
+    // Add typing as a live overlay if active
     if (isTyping && typingStart !== null) {
-      all.push({
-        id: "__typing__",
-        text: typingText,
-        start: typingStart,
-        end: typingStart + typingText.length,
-        type: "typing",
+      overlays.push({ 
+        id: "__typing__", 
+        text: typingText, 
+        start: typingStart, 
+        end: typingStart, 
+        type: "typing" 
       });
     }
-    if (!all.length) return text;
-    // Sort by start
-    const sorted = [...all].sort((a, b) => a.start - b.start);
-    let lastIdx = 0;
-    const nodes: React.ReactNode[] = [];
-    sorted.forEach((h, i) => {
-      if (h.start > lastIdx) {
-        nodes.push(text.slice(lastIdx, h.start));
-      }
-      if (h.type === "highlight") {
-        nodes.push(
-          <span key={h.id} className="bg-yellow-200 text-gray-900 rounded px-1 cursor-pointer">
-            {text.slice(h.start, h.end)}
-          </span>
-        );
-      } else if (h.type === "strike") {
-        nodes.push(
-          <span key={h.id} className="bg-white/30 text-white line-through rounded px-1 cursor-pointer">
-            {text.slice(h.start, h.end)}
-          </span>
-        );
-      } else if (h.type === "blue") {
-        nodes.push(
-          <span key={h.id} className="bg-blue-200 text-blue-900 rounded px-1 cursor-pointer">
-            {text.slice(h.start, h.end)}
-          </span>
-        );
-      } else if (h.type === "typing") {
-        nodes.push(
-          <span key={h.id} className="bg-blue-200 text-blue-900 rounded px-1 animate-pulse">
-            {typingText}
-            <span className="animate-blink">|</span>
-          </span>
-        );
-      }
-      lastIdx = h.end;
-    });
-    if (lastIdx < text.length) {
-      nodes.push(text.slice(lastIdx));
+
+    // Sort overlays by start position
+    const sortedOverlays = overlays.sort((a, b) => a.start - b.start);
+
+    if (sortedOverlays.length === 0) {
+      return [text];
     }
+
+    let nodes: React.ReactNode[] = [];
+    let currentIndex = 0;
+    
+    for (let i = 0; i < sortedOverlays.length; i++) {
+      const overlay = sortedOverlays[i];
+      
+      // Add any text before this overlay
+      if (overlay.start > currentIndex) {
+        nodes.push(text.slice(currentIndex, overlay.start));
+      }
+      
+      // Handle different overlay types
+      if (overlay.type === "typing") {
+        // For typing, insert at the position without consuming text
+        nodes.push(
+          <span key={overlay.id} className="relative inline-block">
+            <span className="bg-blue-500 text-white px-1 rounded font-medium">
+              {overlay.text}
+              <span className="inline-block w-0.5 h-4 bg-white ml-0.5 animate-pulse"></span>
+            </span>
+          </span>
+        );
+        // Don't update currentIndex since typing doesn't consume text
+        currentIndex = overlay.start;
+      } else if (overlay.type === "addition") {
+        // For additions, insert at the position without consuming text
+        nodes.push(
+          <span key={overlay.id} className="bg-blue-200 text-blue-900 rounded px-1 cursor-pointer font-medium">
+            {overlay.text}
+          </span>
+        );
+        // Don't update currentIndex since additions don't consume text
+        currentIndex = overlay.start;
+      } else if (overlay.type === "highlight") {
+        // Highlights consume text
+        nodes.push(
+          <span key={overlay.id} className="bg-yellow-200 text-gray-900 rounded px-1 cursor-pointer">
+            {text.slice(overlay.start, overlay.end)}
+          </span>
+        );
+        currentIndex = overlay.end;
+      } else if (overlay.type === "strike") {
+        // Strikethroughs consume text
+        nodes.push(
+          <span key={overlay.id} className="bg-white/30 text-white line-through rounded px-1 cursor-pointer">
+            {text.slice(overlay.start, overlay.end)}
+          </span>
+        );
+        currentIndex = overlay.end;
+      }
+    }
+    
+    // Add any remaining text
+    if (currentIndex < text.length) {
+      nodes.push(text.slice(currentIndex));
+    }
+    
     return nodes;
   }
 
@@ -635,8 +823,83 @@ export default function PingDetail() {
     }
   };
 
+  // Create a new addition
+  const handleCreateAddition = async (start: number, text: string) => {
+    try {
+      const res = await api.post(`/pings/${query.pingId}/additions`, {
+        anchor_start: start,
+        text
+      });
+      const a = res.data;
+      
+      // Add the new addition to the state
+      setAdditions(prev => [
+        ...prev,
+        { 
+          id: String(a.id), 
+          text: a.text, 
+          start: a.anchor_start, 
+          end: a.anchor_start // For additions, end = start since they're insertions
+        }
+      ]);
+    } catch (err) {
+      console.error("Failed to create addition:", err);
+    }
+  };
+
+  // Accept an addition
+  const handleAcceptAddition = async (id: string) => {
+    try {
+      await api.post(`/pings/${query.pingId}/additions/${id}/accept`);
+      // Re-fetch essay and additions
+      mutate(); // re-fetch ping/essay
+      const res = await api.get(`/pings/${query.pingId}/additions`);
+      const adds = res.data;
+      setAdditions(
+        adds.map((a: any) => ({
+          id: String(a.id),
+          text: a.text,
+          start: a.anchor_start,
+          end: a.anchor_start + a.text.length
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to accept addition:", err);
+    }
+  };
+
+  // Reject an addition
+  const handleRejectAddition = async (id: string) => {
+    try {
+      await api.post(`/pings/${query.pingId}/additions/${id}/reject`);
+      // Re-fetch additions
+      const res = await api.get(`/pings/${query.pingId}/additions`);
+      const adds = res.data;
+      setAdditions(
+        adds.map((a: any) => ({
+          id: String(a.id),
+          text: a.text,
+          start: a.anchor_start,
+          end: a.anchor_start + a.text.length
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to reject addition:", err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] font-['-apple-system',BlinkMacSystemFont,'Segoe_UI',Montserrat,sans-serif] text-[#1f2937] leading-[1.6]">
+      <style jsx>{`
+        @keyframes blink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0; }
+        }
+        .animate-blink {
+          animation: blink 1s infinite;
+        }
+      `}</style>
+      
       {/* Navigation */}
       <div className="sticky top-0 z-[100]">
         <div className="bg-gradient-to-r from-[#592e81] to-[#c004d1] backdrop-blur-[20px] border-b border-white/10">
@@ -717,7 +980,7 @@ export default function PingDetail() {
               <div
                 ref={essayRef}
                 className="bg-[rgba(109,40,217,0.3)] rounded-xl p-5 leading-[1.8] text-base border border-white/10 min-h-[200px]"
-                style={{ position: "relative" }}
+                style={{ position: "relative", userSelect: role === "consultant" ? "text" : "none" }}
               >
                 {role === "student" && isEditing ? (
                   <textarea
@@ -799,33 +1062,42 @@ export default function PingDetail() {
               </div>
 
               {/* Highlighted comments sidebar */}
-              {role === "consultant" && highlights.length > 0 && (
+              {highlights.length > 0 && (
                 <div className="space-y-4 mb-4">
                   {highlights.map(h => (
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="bg-yellow-200 text-yellow-900 text-xs font-bold px-2 py-1 rounded">Comment</span>
-                        <button onClick={() => handleResolve(h.id)} className="ml-auto text-xs text-gray-300 hover:text-green-500">Mark as resolved</button>
+                        {role === "consultant" && (
+                          <button onClick={() => handleResolve(h.id)} className="ml-auto text-xs text-gray-300 hover:text-green-500">Mark as resolved</button>
+                        )}
                       </div>
                       <div className="text-yellow-100 text-sm mb-3">{h.text}</div>
-                      <div className="space-y-2">
-                        <label className="block text-white/80 text-xs font-medium">Add comment:</label>
-                        <textarea
-                          value={highlightComments[h.id] || ""}
-                          onChange={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
-                          placeholder="Type your comment here..."
-                          className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
-                          rows={2}
-                          onBlur={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
-                        />
-                      </div>
+                      {role === "consultant" && (
+                        <div className="space-y-2">
+                          <label className="block text-white/80 text-xs font-medium">Add comment:</label>
+                          <textarea
+                            value={highlightComments[h.id] || ""}
+                            onChange={(e) => handleSaveHighlightComment(h.id, e.target.value, false)}
+                            placeholder="Type your comment here..."
+                            className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
+                            rows={2}
+                            onBlur={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
+                          />
+                        </div>
+                      )}
+                      {role === "student" && highlightComments[h.id] && (
+                        <div className="text-white/80 text-sm">
+                          <strong>Comment:</strong> {highlightComments[h.id]}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Strikethrough suggestions */}
-              {role === "consultant" && strikethroughs.length > 0 && (
+              {strikethroughs.length > 0 && (
                 <div className="space-y-4 mb-4">
                   {strikethroughs.map(h => (
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
@@ -860,16 +1132,36 @@ export default function PingDetail() {
                 </div>
               )}
 
-              {/* Blue highlights (typed text) */}
-              {role === "consultant" && blueHighlights.length > 0 && (
+              {/* Additions (typed text, backend-connected) */}
+              {additions && additions.length > 0 && (
                 <div className="space-y-4 mb-4">
-                  {blueHighlights.map(h => (
+                  {additions.map(h => (
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="bg-blue-200 text-blue-900 text-xs font-bold px-2 py-1 rounded">Suggestion</span>
-                        <button onClick={() => handleRemoveBlueHighlight(h.id)} className="ml-auto text-xs text-gray-300 hover:text-red-500">Remove</button>
+                        <span className="bg-blue-200 text-blue-900 text-xs font-bold px-2 py-1 rounded">Addition</span>
+                        {role === "consultant" && (
+                          <button onClick={() => handleRejectAddition(h.id)} className="ml-auto text-xs text-gray-300 hover:text-red-500">Remove</button>
+                        )}
                       </div>
                       <div className="text-blue-100 text-sm">{h.text}</div>
+                      {role === "student" && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => handleAcceptAddition(h.id)}
+                            className="bg-blue-600/80 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-blue-600 transition-all duration-300 hover:scale-105"
+                            title="Accept this addition"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => handleRejectAddition(h.id)}
+                            className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105"
+                            title="Reject this addition"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -929,4 +1221,4 @@ export default function PingDetail() {
       </div>
     </div>
   );
-} 
+}

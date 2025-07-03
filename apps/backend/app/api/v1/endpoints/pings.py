@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from typing import List
 from pydantic import BaseModel
 from ..deps import get_db, get_current_user, get_current_role, get_current_consultant
-from app.db.models import Ping, CollegeApplication, Suggestion, Comment, Strikethrough, EssayResponse
+from app.db.models import Ping, CollegeApplication, Suggestion, Comment, Strikethrough, EssayResponse, Addition
 from app.schemas.ping import PingCreate
 from app.schemas.comments import CommentCreate, CommentRead
 from datetime import datetime
@@ -21,6 +21,10 @@ class SuggestionCreate(BaseModel):
 class StrikethroughCreate(BaseModel):
     anchor_start: int
     anchor_end: int
+    text: str
+
+class AdditionCreate(BaseModel):
+    anchor_start: int
     text: str
 
 # list
@@ -377,3 +381,92 @@ def reject_strikethrough(
     db.delete(st)
     db.commit()
     return {"message": "Strikethrough rejected and deleted"}
+
+# Addition endpoints
+@router.get("/{ping_id}/additions", response_model=List[dict])
+def get_additions_for_ping(
+    ping_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+):
+    additions = db.exec(select(Addition).where(Addition.ping_id == ping_id)).all()
+    return [
+        {
+            "id": a.id,
+            "anchor_start": a.anchor_start,
+            "text": a.text,
+            "author_id": a.author_id,
+            "accepted": a.accepted,
+            "created_at": a.created_at.isoformat(),
+        } for a in additions
+    ]
+
+@router.post("/{ping_id}/additions", response_model=dict)
+def create_addition(
+    ping_id: int,
+    payload: AdditionCreate,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+    current_consultant = Depends(get_current_consultant),
+):
+    if role != "consultant":
+        raise HTTPException(403, "Only consultants may create additions")
+    ping = db.get(Ping, ping_id)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    a = Addition(
+        ping_id=ping_id,
+        author_id=current_consultant.id,
+        anchor_start=payload.anchor_start,
+        text=payload.text,
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    return {
+        "id": a.id,
+        "anchor_start": a.anchor_start,
+        "text": a.text,
+        "author_id": a.author_id,
+        "accepted": a.accepted,
+        "created_at": a.created_at.isoformat(),
+    }
+
+@router.post("/{ping_id}/additions/{addition_id}/accept")
+def accept_addition(
+    ping_id: int,
+    addition_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+    current_user = Depends(get_current_user),
+):
+    addition = db.get(Addition, addition_id)
+    if not addition or addition.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Addition not found")
+    ping = db.get(Ping, ping_id)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    essay = db.get(EssayResponse, ping.essay_id)
+    if not essay:
+        raise HTTPException(status_code=404, detail="Essay not found")
+    # Insert the text into the essay
+    essay.response = essay.response[:addition.anchor_start] + addition.text + essay.response[addition.anchor_start:]
+    essay.last_edited = datetime.utcnow()
+    db.add(essay)
+    db.delete(addition)
+    db.commit()
+    return {"message": "Addition accepted and essay updated"}
+
+@router.post("/{ping_id}/additions/{addition_id}/reject")
+def reject_addition(
+    ping_id: int,
+    addition_id: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_current_role),
+):
+    addition = db.get(Addition, addition_id)
+    if not addition or addition.ping_id != ping_id:
+        raise HTTPException(status_code=404, detail="Addition not found")
+    db.delete(addition)
+    db.commit()
+    return {"message": "Addition rejected and deleted"}
