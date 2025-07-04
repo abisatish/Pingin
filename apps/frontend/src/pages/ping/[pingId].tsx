@@ -75,6 +75,16 @@ export default function PingDetail() {
   const [typingStart, setTypingStart] = useState<number | null>(null);
   const [typingText, setTypingText] = useState("");
   const [highlightComments, setHighlightComments] = useState<{ [key: string]: string }>({});
+  
+  // New state for text replacement feature
+  const [isReplacingText, setIsReplacingText] = useState(false);
+  const [replacementData, setReplacementData] = useState<{
+    originalText: string;
+    start: number;
+    end: number;
+    newText: string;
+  } | null>(null);
+  
   const essayRef = React.useRef<HTMLDivElement>(null);
 
   const { data: ping, mutate, error, isLoading } = useSWR<PingData>(
@@ -190,7 +200,7 @@ export default function PingDetail() {
     }
   };
 
-  // --- Highlight selection logic (consultant only) ---
+  // --- Enhanced highlight selection logic with text replacement ---
   useEffect(() => {
     if (role !== "consultant") return;
     const handleMouseUp = (e: MouseEvent) => {
@@ -334,34 +344,111 @@ export default function PingDetail() {
     return () => document.removeEventListener("mouseup", handleMouseUp);
   }, [essayContent, role, additions]);
 
-  // --- Strikethrough selection logic (consultant only) ---
+  // --- Enhanced keyboard handling for text replacement ---
   useEffect(() => {
     if (role !== "consultant") return;
+    
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!essayRef.current) return;
+      
+      // Handle text replacement mode
+      if (isReplacingText && replacementData) {
+        if (e.key === "Escape") {
+          // Cancel replacement
+          setIsReplacingText(false);
+          setReplacementData(null);
+          setSelectionBox(null);
+          window.getSelection()?.removeAllRanges();
+          return;
+        }
+        
+        if (e.key === "Enter") {
+          // Finalize replacement
+          if (replacementData.newText.trim()) {
+            // Create strikethrough for original text
+            handleCreateStrikethrough(replacementData.start, replacementData.end, replacementData.originalText);
+            
+            // Create addition for new text at the end of the selection
+            handleCreateAddition(replacementData.end, replacementData.newText);
+          }
+          
+          setIsReplacingText(false);
+          setReplacementData(null);
+          setSelectionBox(null);
+          window.getSelection()?.removeAllRanges();
+          return;
+        }
+        
+        if (e.key === "Backspace") {
+          setReplacementData(prev => prev ? {
+            ...prev,
+            newText: prev.newText.slice(0, -1)
+          } : null);
+          e.preventDefault();
+          return;
+        }
+        
+        // Add printable characters to replacement text
+        if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          setReplacementData(prev => prev ? {
+            ...prev,
+            newText: prev.newText + e.key
+          } : null);
+          e.preventDefault();
+          return;
+        }
+      }
+      
+      // Check for text selection and typing to start replacement mode
       const selection = window.getSelection();
-      if (!selection || !essayRef.current.contains(selection.anchorNode) || selection.isCollapsed) return;
-      if (e.key !== "Backspace" && e.key !== "Delete") return;
-      const text = selection.toString();
-      if (!text.trim()) return;
-      // Find start and end index relative to essay text
-      const essayText = essayContent;
-      const absStart = essayText.indexOf(text);
-      const absEnd = absStart + text.length;
-      if (absStart === -1) return;
-      // Prevent duplicate strikethroughs
-      if (strikethroughs.some(h => h.start === absStart && h.end === absEnd)) return;
-      
-      // Call the API to create the strikethrough in the database
-      handleCreateStrikethrough(absStart, absEnd, text);
-      
-      window.getSelection()?.removeAllRanges();
-      setSelectionBox(null);
-      e.preventDefault();
+      if (selection && !selection.isCollapsed && essayRef.current.contains(selection.anchorNode)) {
+        const selectedText = selection.toString();
+        if (selectedText.trim()) {
+          // Check if user is typing a printable character (not Backspace/Delete)
+          if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            // Start text replacement mode
+            const essayText = essayContent;
+            const absStart = essayText.indexOf(selectedText);
+            const absEnd = absStart + selectedText.length;
+            
+            if (absStart !== -1) {
+              setIsReplacingText(true);
+              setReplacementData({
+                originalText: selectedText,
+                start: absStart,
+                end: absEnd,
+                newText: e.key
+              });
+              setSelectionBox(null);
+              e.preventDefault();
+              return;
+            }
+          }
+          
+          // Handle backspace/delete for strikethrough (existing functionality)
+          if (e.key === "Backspace" || e.key === "Delete") {
+            const essayText = essayContent;
+            const absStart = essayText.indexOf(selectedText);
+            const absEnd = absStart + selectedText.length;
+            if (absStart === -1) return;
+            
+            // Prevent duplicate strikethroughs
+            if (strikethroughs.some(h => h.start === absStart && h.end === absEnd)) return;
+            
+            // Call the API to create the strikethrough in the database
+            handleCreateStrikethrough(absStart, absEnd, selectedText);
+            
+            window.getSelection()?.removeAllRanges();
+            setSelectionBox(null);
+            e.preventDefault();
+          }
+        }
+      }
     };
+    
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [essayContent, role, strikethroughs, setSelectionBox, handleCreateStrikethrough]);
+  }, [essayContent, role, strikethroughs, isReplacingText, replacementData]);
 
   // --- Cursor placement and typing logic (consultant only) ---
   useEffect(() => {
@@ -369,7 +456,7 @@ export default function PingDetail() {
     
     const handleDoubleClick = (e: MouseEvent) => {
       if (!essayRef.current || !essayRef.current.contains(e.target as Node)) return;
-      if (isTyping) return;
+      if (isTyping || isReplacingText) return;
       
       // Clear any existing selection
       window.getSelection()?.removeAllRanges();
@@ -444,7 +531,8 @@ export default function PingDetail() {
       setTypingStart(clickOffset);
       setTypingText("");
     };
-    const handleKeyDown = (e: KeyboardEvent) => {
+    
+    const handleTypingKeyDown = (e: KeyboardEvent) => {
       if (!isTyping || typingStart === null) return;
       
       if (e.key === "Escape") {
@@ -479,12 +567,12 @@ export default function PingDetail() {
     };
     
     document.addEventListener("dblclick", handleDoubleClick);
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleTypingKeyDown);
     return () => {
       document.removeEventListener("dblclick", handleDoubleClick);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleTypingKeyDown);
     };
-  }, [role, isTyping, typingStart, typingText, essayContent]);
+  }, [role, isTyping, typingStart, typingText, essayContent, isReplacingText]);
 
   // --- Highlight action ---
   const handleHighlight = async () => {
@@ -580,7 +668,7 @@ export default function PingDetail() {
       text: string; 
       start: number; 
       end: number; 
-      type: 'highlight' | 'strike' | 'addition' | 'typing' 
+      type: 'highlight' | 'strike' | 'addition' | 'typing' | 'replacement' 
     };
     
     let overlays: OverlayType[] = [
@@ -597,6 +685,27 @@ export default function PingDetail() {
         start: typingStart, 
         end: typingStart, 
         type: "typing" 
+      });
+    }
+
+    // Add replacement preview if active
+    if (isReplacingText && replacementData) {
+      // Add strikethrough preview for original text
+      overlays.push({
+        id: "__replacement_strike__",
+        text: replacementData.originalText,
+        start: replacementData.start,
+        end: replacementData.end,
+        type: "strike"
+      });
+      
+      // Add addition preview for new text
+      overlays.push({
+        id: "__replacement_addition__",
+        text: replacementData.newText,
+        start: replacementData.end,
+        end: replacementData.end,
+        type: "replacement"
       });
     }
 
@@ -631,6 +740,18 @@ export default function PingDetail() {
         );
         // Don't update currentIndex since typing doesn't consume text
         currentIndex = overlay.start;
+      } else if (overlay.type === "replacement") {
+        // For replacement preview, show the new text being typed
+        nodes.push(
+          <span key={overlay.id} className="relative inline-block">
+            <span className="bg-green-500 text-white px-1 rounded font-medium animate-pulse">
+              {overlay.text}
+              <span className="inline-block w-0.5 h-4 bg-white ml-0.5 animate-pulse"></span>
+            </span>
+          </span>
+        );
+        // Don't update currentIndex since replacement doesn't consume text
+        currentIndex = overlay.start;
       } else if (overlay.type === "addition") {
         // For additions, insert at the position without consuming text
         nodes.push(
@@ -650,8 +771,9 @@ export default function PingDetail() {
         currentIndex = overlay.end;
       } else if (overlay.type === "strike") {
         // Strikethroughs consume text
+        const isReplacement = overlay.id === "__replacement_strike__";
         nodes.push(
-          <span key={overlay.id} className="bg-white/30 text-white line-through rounded px-1 cursor-pointer">
+          <span key={overlay.id} className={`${isReplacement ? 'bg-red-500/30 text-red-300' : 'bg-white/30 text-white'} line-through rounded px-1 cursor-pointer ${isReplacement ? 'animate-pulse' : ''}`}>
             {text.slice(overlay.start, overlay.end)}
           </span>
         );
@@ -1017,10 +1139,17 @@ export default function PingDetail() {
                   </div>
                 )}
                 
-                {/* Instructions for typing mode */}
-                {role === "consultant" && !isTyping && (
+                {/* Text replacement mode indicator */}
+                {role === "consultant" && isReplacingText && (
+                  <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium animate-pulse shadow-lg">
+                    Replacing Text - Press Enter to finish, Esc to cancel
+                  </div>
+                )}
+                
+                {/* Instructions for consultant */}
+                {role === "consultant" && !isTyping && !isReplacingText && (
                   <div className="absolute bottom-2 left-2 bg-white/10 text-white/70 px-3 py-1 rounded-lg text-xs">
-                    Double-click anywhere to add text
+                    Double-click to add text • Select text and type to replace • Backspace to strikethrough
                   </div>
                 )}
               </div>
@@ -1078,11 +1207,11 @@ export default function PingDetail() {
                           <label className="block text-white/80 text-xs font-medium">Add comment:</label>
                           <textarea
                             value={highlightComments[h.id] || ""}
-                            onChange={(e) => handleSaveHighlightComment(h.id, e.target.value, false)}
+                            onChange={(e) => handleSaveHighlightComment(h.id, e.target.value)}
                             placeholder="Type your comment here..."
                             className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
                             rows={2}
-                            onBlur={(e) => handleSaveHighlightComment(h.id, e.target.value, true)}
+                            onBlur={(e) => handleSaveHighlightComment(h.id, e.target.value)}
                           />
                         </div>
                       )}
