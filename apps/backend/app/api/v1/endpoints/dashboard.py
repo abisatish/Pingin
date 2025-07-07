@@ -101,30 +101,82 @@ def get_dashboard(
     elif role == "consultant":
         current_consultant = get_current_consultant(authorization, db)
         consultant_id = current_consultant.id
+        
+        # Get recent pings for this consultant
         pings = db.exec(
-            select(Ping).where(Ping.consultant_id == consultant_id).order_by(Ping.created_at.desc()).limit(5)
+            select(Ping).where(Ping.consultant_id == consultant_id).order_by(Ping.created_at.desc()).limit(10)
         ).all()
 
+        # Get students assigned to this consultant (deduplicated)
         students = db.exec(
-            select(Student).join(CollegeApplication).where(CollegeApplication.consultant_id == consultant_id)
+            select(Student)
+            .join(CollegeApplication)
+            .where(CollegeApplication.consultant_id == consultant_id)
+            .distinct()
         ).all()
+
+        # Calculate last active time for each student based on their most recent ping
+        student_last_active = {}
+        for student in students:
+            # Get the most recent ping for this student
+            latest_ping = db.exec(
+                select(Ping)
+                .where(Ping.student_id == student.id)
+                .order_by(Ping.created_at.desc())
+                .limit(1)
+            ).first()
+            
+            if latest_ping:
+                student_last_active[student.id] = latest_ping.created_at.isoformat()
+            else:
+                student_last_active[student.id] = None
+
+        # Calculate statistics
+        active_students_count = len(students)
+        pending_reviews_count = len([p for p in pings if p.status == "open"])
 
         return {
             "role": role,
+            "consultant_id": consultant_id,
+            "consultant_name": current_consultant.name,
+            "stats": {
+                "active_students": active_students_count,
+                "pending_reviews": pending_reviews_count,
+                "sessions_this_month": 18,  # Mock data for now
+                "hours_this_week": 12  # Mock data for now
+            },
             "pings": [ 
                 {
                     "id": p.id,
                     "question": p.question,
-                    "status": p.status
+                    "status": p.status,
+                    "created_at": p.created_at.isoformat(),
+                    "student_id": p.student_id,
+                    "application_id": p.application_id
                 } for p in pings
             ],
             "students": [
                 {
                     "id": s.id,
+                    "name": s.name,
                     "registration_id": s.registration_id,
                     "gpa": db.exec(select(Transcript.gpa).where(Transcript.student_id == s.id)).first(),
-                    "photo_url": s.photo_url
+                    "photo_url": s.photo_url,
+                    "last_active": student_last_active.get(s.id),
+                    "status": "Active"  # This could be calculated based on recent activity
                 } for s in students
+            ],
+            "recent_messages": [
+                {
+                    "id": p.id,
+                    "sender": "Student",  # Pings are always from students
+                    "student_name": db.get(Student, p.student_id).name if db.get(Student, p.student_id) else "Unknown Student",
+                    "message": p.question[:100] + "..." if len(p.question) > 100 else p.question,
+                    "time": p.created_at.isoformat(),
+                    "unread": p.status == "open",  # Mark as unread if ping is still open
+                    "ping_id": p.id,
+                    "ping_status": p.status
+                } for p in pings
             ]
         }
 

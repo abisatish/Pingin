@@ -250,7 +250,8 @@ class Ping(SQLModel, table=True):
 class Comment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ping_id: int            = Field(foreign_key="ping.id")          # which Ping
-    author_id: int          = Field(foreign_key="consultant.id")    # or student.id
+    author_id: int          # Will reference either consultant.id or student.id
+    author_role: str        = Field(default="consultant")           # "consultant" or "student"
     anchor_start: int       # character offset in essay.response
     anchor_end: int
     body: str
@@ -262,7 +263,8 @@ class Comment(SQLModel, table=True):
 class Suggestion(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ping_id: int = Field(foreign_key="ping.id")
-    author_id: int = Field(foreign_key="consultant.id")
+    author_id: int          # Will reference either consultant.id or student.id
+    author_role: str        = Field(default="consultant")           # "consultant" or "student"
     type: str = Field(default="grammar")  # grammar, style, content, structure
     original_text: str
     suggested_text: str
@@ -275,7 +277,8 @@ class Suggestion(SQLModel, table=True):
 class Strikethrough(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ping_id: int = Field(foreign_key="ping.id")
-    author_id: int = Field(foreign_key="consultant.id")
+    author_id: int          # Will reference either consultant.id or student.id
+    author_role: str        = Field(default="consultant")           # "consultant" or "student"
     anchor_start: int
     anchor_end: int
     text: str
@@ -286,7 +289,8 @@ class Strikethrough(SQLModel, table=True):
 class Addition(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ping_id: int = Field(foreign_key="ping.id")
-    author_id: int = Field(foreign_key="consultant.id")
+    author_id: int          # Will reference either consultant.id or student.id
+    author_role: str        = Field(default="consultant")           # "consultant" or "student"
     anchor_start: int  # Position where text should be inserted
     text: str  # Text to be inserted
     accepted: bool = Field(default=False)

@@ -21,7 +21,7 @@ INSERT INTO consultant (id,email,name,bio,tags,password_hash) VALUES
     '["Computer Science","Engineering","Mathematics","Physics","USACO","FIRST Robotics","Science Olympiad"]',
     '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC'),
  (2,'omar@consults.com','Omar Ahmad',
-    'Essay specialist and former Stanford GSB officer. Business-and-entrepreneurship focus.',
+    'Essay specialist and ex-Stanford GSB officer. Business & entrepreneurship focus.',
     '["Economics","Business / Entrepreneurship","Political Science","DECA","Model UN","Debate or Speech"]',
     '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC'),
  (3,'sarah@consults.com','Sarah Chen',
@@ -29,11 +29,11 @@ INSERT INTO consultant (id,email,name,bio,tags,password_hash) VALUES
     '["Literature / English","History","Philosophy","Psychology","Performing Arts","Art / Art History"]',
     '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC'),
  (4,'miguel@consults.com','Miguel Rodriguez',
-    'Stanford Med grad; ex-UCSF committee. Biology & health-sciences mentor.',
+    'Stanford Med grad; ex-UCSF committee member. Biology & health-sciences mentor.',
     '["Biology","Chemistry","Environmental Science","Pre-Medicine","Science Olympiad","Intel STS / Regeneron"]',
     '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC'),
  (5,'priya@consults.com','Priya Patel',
-    'Columbia Law grad; ex-Georgetown officer. Law & policy applications specialist.',
+    'Columbia Law grad; ex-Georgetown officer. Law & policy-application specialist.',
     '["Law / Pre-Law","Political Science","International Relations","Economics","Model UN","Debate or Speech"]',
     '$2b$12$cmEwz3dqWDLO7DEE6zcGmuOrtPxWwOT9zlBJgqQcS8xQfSJfHKoEC'),
  (6,'david@consults.com','David Kim',
@@ -168,7 +168,7 @@ INSERT INTO quizquestion (id,text,tag) VALUES
 
 INSERT INTO studentquizanswer (student_id,question_id,answer) VALUES
  (100,1,'yes'),(100,2,'no'),(100,3,'yes'),
- (101,1,'no'), (101,2,'yes'),(101,3,'no'),
+ (101,1,'no') ,(101,2,'yes'),(101,3,'no'),
  (102,1,'yes'),(102,2,'no'),(102,3,'yes');
 
 /* ───────── college applications ──────────────────────────────────── */
@@ -177,6 +177,7 @@ INSERT INTO collegeapplication
   college_name,major,major_category,
   status,match_score,created_at,updated_at)
 VALUES
+ -- Alice
  (1,100,1,'Massachusetts Institute of Technology (MIT)','Computer Science','STEM'::majorcategory,
   'DRAFT'::collegeapplicationstatus,95,NOW(),NOW()),
  (2,100,1,'Stanford University','Computer Science','STEM'::majorcategory,
@@ -184,6 +185,7 @@ VALUES
  (3,100,1,'University of California, Berkeley','Computer Science','STEM'::majorcategory,
   'DRAFT'::collegeapplicationstatus,88,NOW(),NOW()),
 
+ -- Ben
  (4,101,2,'University of Pennsylvania','Business Administration','BUSINESS'::majorcategory,
   'DRAFT'::collegeapplicationstatus,94,NOW(),NOW()),
  (5,101,2,'New York University (NYU)','Business Administration','BUSINESS'::majorcategory,
@@ -191,6 +193,7 @@ VALUES
  (6,101,2,'University of Michigan','Business Administration','BUSINESS'::majorcategory,
   'DRAFT'::collegeapplicationstatus,87,NOW(),NOW()),
 
+ -- Cara
  (7,102,4,'Johns Hopkins University','Biology','STEM'::majorcategory,
   'DRAFT'::collegeapplicationstatus,96,NOW(),NOW()),
  (8,102,4,'Duke University','Biology','STEM'::majorcategory,
@@ -198,6 +201,7 @@ VALUES
  (9,102,4,'Vanderbilt University','Biology','STEM'::majorcategory,
   'DRAFT'::collegeapplicationstatus,89,NOW(),NOW()),
 
+ -- James
  (10,103,3,'Yale University','English Literature','HUMANITIES'::majorcategory,
   'DRAFT'::collegeapplicationstatus,95,NOW(),NOW()),
  (11,103,3,'Columbia University','English Literature','HUMANITIES'::majorcategory,
@@ -205,6 +209,7 @@ VALUES
  (12,103,3,'University of Chicago','English Literature','HUMANITIES'::majorcategory,
   'DRAFT'::collegeapplicationstatus,88,NOW(),NOW()),
 
+ -- Maria
  (13,104,5,'Harvard University','Political Science','HUMANITIES'::majorcategory,
   'DRAFT'::collegeapplicationstatus,94,NOW(),NOW()),
  (14,104,5,'Georgetown University','Political Science','HUMANITIES'::majorcategory,
@@ -212,6 +217,7 @@ VALUES
  (15,104,5,'American University','Political Science','HUMANITIES'::majorcategory,
   'DRAFT'::collegeapplicationstatus,87,NOW(),NOW()),
 
+ -- Alex
  (16,105,6,'California Institute of Technology (Caltech)','Engineering','STEM'::majorcategory,
   'DRAFT'::collegeapplicationstatus,96,NOW(),NOW()),
  (17,105,6,'Georgia Tech','Engineering','STEM'::majorcategory,
@@ -241,69 +247,92 @@ INSERT INTO essayresponse
  (17,17,'Describe an engineering project.','I designed a solar-powered water-purification system…',NOW()),
  (18,18,'Engineering goals?','I want to develop sustainable tech to fight climate change…',NOW());
 
-/* ───────── pings (now includes essay_id) ─────────────────────────── */
+/* ───────── pings (essay-aware) ────────────────────────────────────── */
 INSERT INTO ping
-    (id,application_id,student_id,consultant_id,
-     question,status,answer,essay_id,created_at)
-VALUES
- (1 ,  1 ,100,1,'Add robotics-competition experience?','answered',
-     'Great suggestion! I''ll highlight my FIRST Robotics award.',            1 ,NOW()),
- (2 ,  2 ,100,1,'Need more concrete coding examples.','answered',
-     'I''ll describe my ML weather-prediction project.',                      2 ,NOW()),
- (3 ,  3 ,100,1,'Mention future CS goals?','answered',
-     'I''ll add a paragraph on AI and accessibility.',                        3 ,NOW()),
- (4 ,  4 ,101,2,'Add metrics to leadership story.','answered',
-     'Will include club-growth numbers.',                                     4 ,NOW()),
- (5 ,  5 ,101,2,'Describe challenge faced in entrepreneurship.','answered',
-     'I''ll tell how we overcame initial funding pushback.',                  5 ,NOW()),
- (6 ,  6 ,101,2,'Link goals to school resources?','answered',
-     'Will cite Wharton leadership program.',                                 6 ,NOW()),
- (7 ,  7 ,102,4,'Need more technical research details.','answered',
-     'I''ll include methodology and sample size.',                            7 ,NOW()),
- (8 ,  8 ,102,4,'Specify medical research interests.','answered',
-     'Adding my focus on cancer genomics.',                                   8 ,NOW()),
- (9 ,  9 ,102,4,'Add personal story for motivation.','answered',
-     'Telling about grandmother''s illness.',                                 9 ,NOW()),
- (10, 10 ,103,3,'Add favourite authors?','answered',
-     'Mentioning Toni Morrison & James Baldwin.',                            10 ,NOW()),
- (11, 11 ,103,3,'Expand To Kill a Mockingbird example.','answered',
-     'Adding its influence on my justice perspective.',                      11 ,NOW()),
- (12, 12 ,103,3,'Link social-justice goal to writing samples.','answered',
-     'Will reference my community-newsletter series.',                       12 ,NOW()),
- (13, 13 ,104,5,'Include concrete policy examples.','answered',
-     'Adding local housing policy that shaped my views.',                    13 ,NOW()),
- (14, 14 ,104,5,'Add outcomes of voter drive.','answered',
-     'We registered 400+ new voters.',                                       14 ,NOW()),
- (15, 15 ,104,5,'Specify key political issues.','answered',
-     'Focus on education equity & healthcare access.',                       15 ,NOW()),
- (16, 16 ,105,6,'Add technical specs for project.','answered',
-     'Including panel efficiency & filtration rate.',                        16 ,NOW()),
- (17, 17 ,105,6,'Tie sustainability project to global issues.','answered',
-     'Explaining link to water scarcity.',                                   17 ,NOW()),
- (18, 18 ,105,6,'Cite specific green tech.','answered',
-     'Adding carbon-capture & renewable-energy discussion.',                 18 ,NOW());
+ (id,application_id,student_id,consultant_id,
+  question,status,answer,essay_id,created_at) VALUES
+ (1 ,1 ,100,1,'Add robotics-competition experience?','answered','Great suggestion! I''ll highlight my FIRST Robotics award.',            1,NOW()),
+ (2 ,2 ,100,1,'Need more concrete coding examples.','answered','I''ll describe my ML weather-prediction project.',                      2,NOW()),
+ (3 ,3 ,100,1,'Mention future CS goals?','answered','I''ll add a paragraph on AI and accessibility.',                                3,NOW()),
+ (4 ,4 ,101,2,'Add metrics to leadership story.','answered','Will include club-growth numbers.',                                       4,NOW()),
+ (5 ,5 ,101,2,'Describe challenge faced in entrepreneurship.','answered','We overcame initial funding pushback.',                      5,NOW()),
+ (6 ,6 ,101,2,'Link goals to school resources?','answered','Will cite Wharton leadership program.',                                     6,NOW()),
+ (7 ,7 ,102,4,'Need more technical research details.','answered','I''ll include methodology and sample size.',                           7,NOW()),
+ (8 ,8 ,102,4,'Specify medical research interests.','answered','Adding my focus on cancer genomics.',                                    8,NOW()),
+ (9 ,9 ,102,4,'Add personal story for motivation.','answered','Telling about grandmother''s illness.',                                   9,NOW()),
+ (10,10,103,3,'Add favourite authors?','answered','Mentioning Toni Morrison & James Baldwin.',                                         10,NOW()),
+ (11,11,103,3,'Expand To Kill a Mockingbird example.','answered','Adding its influence on my justice perspective.',                   11,NOW()),
+ (12,12,103,3,'Link social-justice goal to writing samples.','answered','Will reference my community-newsletter series.',              12,NOW()),
+ (13,13,104,5,'Include concrete policy examples.','answered','Adding local housing policy that shaped my views.',                      13,NOW()),
+ (14,14,104,5,'Add outcomes of voter drive.','answered','We registered 400+ new voters.',                                               14,NOW()),
+ (15,15,104,5,'Specify key political issues.','answered','Focus on education equity & healthcare access.',                              15,NOW()),
+ (16,16,105,6,'Add technical specs for project.','answered','Including panel efficiency & filtration rate.',                            16,NOW()),
+ (17,17,105,6,'Tie sustainability project to global issues.','answered','Explaining link to water scarcity.',                           17,NOW()),
+ (18,18,105,6,'Cite specific green tech.','answered','Adding carbon-capture & renewable-energy discussion.',                            18,NOW());
 
-/* ───────── comments ──────────────────────────────────────────────── */
+/* ───────── comments (author_role now included) ───────────────────── */
 INSERT INTO comment
- (id,ping_id,author_id,anchor_start,anchor_end,body,resolved,created_at) VALUES
- (1,1,1,0,0,'Robotics will really strengthen your spike narrative.',FALSE,NOW()),
- (2,2,1,0,0,'Concrete examples make the essay vivid.',FALSE,NOW()),
- (3,3,1,0,0,'Great — future goals show long-term vision.',FALSE,NOW()),
- (4,4,2,0,0,'Metrics quantify impact — good call.',FALSE,NOW()),
- (5,5,2,0,0,'Challenge-and-solution arcs read well.',FALSE,NOW()),
- (6,6,2,0,0,'Referencing programs shows fit.',FALSE,NOW()),
- (7,7,4,0,0,'Methodology details = credibility.',FALSE,NOW()),
- (8,8,4,0,0,'Specific fields convey focus.',FALSE,NOW()),
- (9,9,4,0,0,'Personal story adds heart.',FALSE,NOW()),
- (10,10,3,0,0,'Authors show breadth.',FALSE,NOW()),
- (11,11,3,0,0,'More depth on that example will shine.',FALSE,NOW()),
- (12,12,3,0,0,'Social-justice tie-in is powerful.',FALSE,NOW()),
- (13,13,5,0,0,'Policy examples prove expertise.',FALSE,NOW()),
- (14,14,5,0,0,'Hard numbers impress reviewers.',FALSE,NOW()),
- (15,15,5,0,0,'Focusing issues shows depth.',FALSE,NOW()),
- (16,16,6,0,0,'Specs highlight technical skill.',FALSE,NOW()),
- (17,17,6,0,0,'Real-world link boosts relevance.',FALSE,NOW()),
- (18,18,6,0,0,'Tech specifics = thought leadership.',FALSE,NOW());
+ (id,ping_id,author_id,author_role,anchor_start,anchor_end,body,resolved,created_at)
+VALUES
+ (1,1,1,'consultant',0,0,'Robotics will really strengthen your spike narrative.',FALSE,NOW()),
+ (2,2,1,'consultant',0,0,'Concrete examples make the essay vivid.',FALSE,NOW()),
+ (3,3,1,'consultant',0,0,'Great — future goals show long-term vision.',FALSE,NOW()),
+ (4,4,2,'consultant',0,0,'Metrics quantify impact — good call.',FALSE,NOW()),
+ (5,5,2,'consultant',0,0,'Challenge-and-solution arcs read well.',FALSE,NOW()),
+ (6,6,2,'consultant',0,0,'Referencing programs shows fit.',FALSE,NOW()),
+ (7,7,4,'consultant',0,0,'Methodology details = credibility.',FALSE,NOW()),
+ (8,8,4,'consultant',0,0,'Specific fields convey focus.',FALSE,NOW()),
+ (9,9,4,'consultant',0,0,'Personal story adds heart.',FALSE,NOW()),
+ (10,10,3,'consultant',0,0,'Authors show breadth.',FALSE,NOW()),
+ (11,11,3,'consultant',0,0,'More depth on that example will shine.',FALSE,NOW()),
+ (12,12,3,'consultant',0,0,'Social-justice tie-in is powerful.',FALSE,NOW()),
+ (13,13,5,'consultant',0,0,'Policy examples prove expertise.',FALSE,NOW()),
+ (14,14,5,'consultant',0,0,'Hard numbers impress reviewers.',FALSE,NOW()),
+ (15,15,5,'consultant',0,0,'Focusing issues shows depth.',FALSE,NOW()),
+ (16,16,6,'consultant',0,0,'Specs highlight technical skill.',FALSE,NOW()),
+ (17,17,6,'consultant',0,0,'Real-world link boosts relevance.',FALSE,NOW()),
+ (18,18,6,'consultant',0,0,'Tech specifics = thought leadership.',FALSE,NOW());
+
+/* ───────── tasks (new table) ──────────────────────────────────────── */
+INSERT INTO task
+ (id,student_id,title,description,due_date,status,priority,category,
+  related_application_id,created_at,updated_at)
+VALUES
+ (1,100,'Rewrite MIT Essay',
+  'Incorporate robotics example and future AI goals.',
+  NOW() + INTERVAL '7 days',
+  'PENDING'::taskstatus,'HIGH'::taskpriority,'essay',
+  1,NOW(),NOW()),
+
+ (2,101,'Finalize Wharton Essay',
+  'Add leadership metrics and resource references.',
+  NOW() + INTERVAL '5 days',
+  'IN_PROGRESS'::taskstatus,'MEDIUM'::taskpriority,'essay',
+  4,NOW(),NOW()),
+
+ (3,102,'Upload Updated Transcript',
+  'After semester grades post.',
+  NOW() + INTERVAL '14 days',
+  'PENDING'::taskstatus,'LOW'::taskpriority,'application',
+  NULL,NOW(),NOW());
+
+/* ───────── suggestions / strikethroughs / additions ──────────────── */
+INSERT INTO suggestion
+ (id,ping_id,author_id,author_role,type,
+  original_text,suggested_text,comment,accepted,created_at)
+VALUES
+ (1,1,1,'consultant','content',
+  'I love robotics.',
+  'I developed award-winning robotics projects.',
+  'Show concrete achievement.',FALSE,NOW());
+
+INSERT INTO strikethrough
+ (id,ping_id,author_id,author_role,anchor_start,anchor_end,text,created_at) VALUES
+ (1,1,100,'student',25,40,'superfluous phrase',NOW());
+
+INSERT INTO addition
+ (id,ping_id,author_id,author_role,anchor_start,text,accepted,created_at) VALUES
+ (1,1,100,'student',120,'My work helped build low-cost prosthetics.',FALSE,NOW());
 
 /* ───────── consultant matching-quiz responses ─────────────────────── */
 INSERT INTO consultantmatchingquizresponse
@@ -343,19 +372,23 @@ VALUES
   'Male',NULL,FALSE,NULL,NULL,NOW(),NOW());
 
 /* ───────── bump sequences ─────────────────────────────────────────── */
-SELECT setval('highschool_id_seq', (SELECT MAX(id) FROM highschool));
-SELECT setval('college_id_seq', (SELECT MAX(id) FROM college));
-SELECT setval('consultant_id_seq', (SELECT MAX(id) FROM consultant));
-SELECT setval('student_id_seq', (SELECT MAX(id) FROM student));
-SELECT setval('studentmatchingquizresponse_id_seq', (SELECT MAX(id) FROM studentmatchingquizresponse));
-SELECT setval('consultantmatchingquizresponse_id_seq', (SELECT MAX(id) FROM consultantmatchingquizresponse));
-SELECT setval('address_id_seq', (SELECT MAX(id) FROM address));
-SELECT setval('transcript_id_seq', (SELECT MAX(id) FROM transcript));
-SELECT setval('quizquestion_id_seq', (SELECT MAX(id) FROM quizquestion));
-SELECT setval('studentquizanswer_id_seq', (SELECT MAX(id) FROM studentquizanswer));
-SELECT setval('collegeapplication_id_seq', (SELECT MAX(id) FROM collegeapplication));
-SELECT setval('essayresponse_id_seq', (SELECT MAX(id) FROM essayresponse));
-SELECT setval('ping_id_seq', (SELECT MAX(id) FROM ping));
-SELECT setval('comment_id_seq', (SELECT MAX(id) FROM comment));
+SELECT setval('highschool_id_seq',                       (SELECT MAX(id) FROM highschool));
+SELECT setval('college_id_seq',                          (SELECT MAX(id) FROM college));
+SELECT setval('consultant_id_seq',                       (SELECT MAX(id) FROM consultant));
+SELECT setval('student_id_seq',                          (SELECT MAX(id) FROM student));
+SELECT setval('studentmatchingquizresponse_id_seq',      (SELECT MAX(id) FROM studentmatchingquizresponse));
+SELECT setval('consultantmatchingquizresponse_id_seq',   (SELECT MAX(id) FROM consultantmatchingquizresponse));
+SELECT setval('address_id_seq',                          (SELECT MAX(id) FROM address));
+SELECT setval('transcript_id_seq',                       (SELECT MAX(id) FROM transcript));
+SELECT setval('quizquestion_id_seq',                     (SELECT MAX(id) FROM quizquestion));
+SELECT setval('studentquizanswer_id_seq',                (SELECT MAX(id) FROM studentquizanswer));
+SELECT setval('collegeapplication_id_seq',               (SELECT MAX(id) FROM collegeapplication));
+SELECT setval('essayresponse_id_seq',                    (SELECT MAX(id) FROM essayresponse));
+SELECT setval('ping_id_seq',                             (SELECT MAX(id) FROM ping));
+SELECT setval('comment_id_seq',                          (SELECT MAX(id) FROM comment));
+SELECT setval('task_id_seq',                             (SELECT MAX(id) FROM task));
+SELECT setval('suggestion_id_seq',                       (SELECT MAX(id) FROM suggestion));
+SELECT setval('strikethrough_id_seq',                    (SELECT MAX(id) FROM strikethrough));
+SELECT setval('addition_id_seq',                         (SELECT MAX(id) FROM addition));
 
 COMMIT;

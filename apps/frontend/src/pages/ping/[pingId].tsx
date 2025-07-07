@@ -27,7 +27,7 @@ interface Suggestion {
   originalText: string;
   suggestedText: string;
   comment: string;
-  author: string;
+  author_role: string;
   timestamp: string;
   accepted: boolean;
 }
@@ -68,8 +68,8 @@ export default function PingDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [essayContent, setEssayContent] = useState("");
   const [highlights, setHighlights] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
-  const [strikethroughs, setStrikethroughs] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
-  const [additions, setAdditions] = useState<{ id: string; text: string; start: number; end: number }[]>([]);
+  const [strikethroughs, setStrikethroughs] = useState<{ id: string; text: string; start: number; end: number; author_role: string }[]>([]);
+  const [additions, setAdditions] = useState<{ id: string; text: string; start: number; end: number; author_role: string }[]>([]);
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; text: string; start: number; end: number } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingStart, setTypingStart] = useState<number | null>(null);
@@ -150,7 +150,8 @@ export default function PingDetail() {
             id: String(s.id),
             text: s.text,
             start: s.anchor_start,
-            end: s.anchor_end
+            end: s.anchor_end,
+            author_role: s.author_role
           }))
         );
       } catch (err) {
@@ -172,7 +173,8 @@ export default function PingDetail() {
             id: String(a.id),
             text: a.text,
             start: a.anchor_start,
-            end: a.anchor_start + a.text.length
+            end: a.anchor_start + a.text.length,
+            author_role: a.author_role
           }))
         );
       } catch (err) {
@@ -193,7 +195,7 @@ export default function PingDetail() {
       const s = res.data;
       setStrikethroughs(prev => [
         ...prev,
-        { id: String(s.id), text: s.text, start: s.anchor_start, end: s.anchor_end }
+        { id: String(s.id), text: s.text, start: s.anchor_start, end: s.anchor_end, author_role: s.author_role }
       ]);
     } catch (err) {
       console.error("Failed to create strikethrough:", err);
@@ -202,7 +204,7 @@ export default function PingDetail() {
 
   // --- Enhanced highlight selection logic with text replacement ---
   useEffect(() => {
-    if (role !== "consultant") return;
+    if (role !== "consultant" && role !== "student") return;
     const handleMouseUp = (e: MouseEvent) => {
       // Small delay to ensure selection is complete
       setTimeout(() => {
@@ -346,7 +348,7 @@ export default function PingDetail() {
 
   // --- Enhanced keyboard handling for text replacement ---
   useEffect(() => {
-    if (role !== "consultant") return;
+    if (role !== "consultant" && role !== "student") return;
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!essayRef.current) return;
@@ -450,9 +452,9 @@ export default function PingDetail() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [essayContent, role, strikethroughs, isReplacingText, replacementData]);
 
-  // --- Cursor placement and typing logic (consultant only) ---
+  // --- Cursor placement and typing logic (consultant and student) ---
   useEffect(() => {
-    if (role !== "consultant") return;
+    if (role !== "consultant" && role !== "student") return;
     
     const handleDoubleClick = (e: MouseEvent) => {
       if (!essayRef.current || !essayRef.current.contains(e.target as Node)) return;
@@ -908,16 +910,49 @@ export default function PingDetail() {
   const handleAcceptStrikethrough = async (id: string) => {
     try {
       await api.post(`/pings/${query.pingId}/strikethroughs/${id}/accept`);
-      // Re-fetch essay and strikethroughs
+      // Re-fetch all data to get updated positions
       mutate(); // re-fetch ping/essay
-      const res = await api.get(`/pings/${query.pingId}/strikethroughs`);
-      const sts = res.data;
+      const [commentsRes, strikethroughsRes, additionsRes] = await Promise.all([
+        api.get(`/pings/${query.pingId}/comments`),
+        api.get(`/pings/${query.pingId}/strikethroughs`),
+        api.get(`/pings/${query.pingId}/additions`)
+      ]);
+      
+      // Update comments/highlights
+      const comments = commentsRes.data.filter((c: any) => !c.resolved);
+      setHighlights(
+        comments.map((c: any) => ({
+          id: String(c.id),
+          text: essayContent.slice(c.anchor_start, c.anchor_end),
+          start: c.anchor_start,
+          end: c.anchor_end
+        }))
+      );
+      setHighlightComments(
+        Object.fromEntries(comments.map((c: any) => [String(c.id), c.body]))
+      );
+      
+      // Update strikethroughs
+      const sts = strikethroughsRes.data;
       setStrikethroughs(
         sts.map((s: any) => ({
           id: String(s.id),
           text: s.text,
           start: s.anchor_start,
-          end: s.anchor_end
+          end: s.anchor_end,
+          author_role: s.author_role
+        }))
+      );
+      
+      // Update additions
+      const adds = additionsRes.data;
+      setAdditions(
+        adds.map((a: any) => ({
+          id: String(a.id),
+          text: a.text,
+          start: a.anchor_start,
+          end: a.anchor_start + a.text.length,
+          author_role: a.author_role
         }))
       );
     } catch (err) {
@@ -937,7 +972,8 @@ export default function PingDetail() {
           id: String(s.id),
           text: s.text,
           start: s.anchor_start,
-          end: s.anchor_end
+          end: s.anchor_end,
+          author_role: s.author_role
         }))
       );
     } catch (err) {
@@ -961,7 +997,8 @@ export default function PingDetail() {
           id: String(a.id), 
           text: a.text, 
           start: a.anchor_start, 
-          end: a.anchor_start // For additions, end = start since they're insertions
+          end: a.anchor_start,
+          author_role: a.author_role
         }
       ]);
     } catch (err) {
@@ -973,16 +1010,49 @@ export default function PingDetail() {
   const handleAcceptAddition = async (id: string) => {
     try {
       await api.post(`/pings/${query.pingId}/additions/${id}/accept`);
-      // Re-fetch essay and additions
+      // Re-fetch all data to get updated positions
       mutate(); // re-fetch ping/essay
-      const res = await api.get(`/pings/${query.pingId}/additions`);
-      const adds = res.data;
+      const [commentsRes, strikethroughsRes, additionsRes] = await Promise.all([
+        api.get(`/pings/${query.pingId}/comments`),
+        api.get(`/pings/${query.pingId}/strikethroughs`),
+        api.get(`/pings/${query.pingId}/additions`)
+      ]);
+      
+      // Update comments/highlights
+      const comments = commentsRes.data.filter((c: any) => !c.resolved);
+      setHighlights(
+        comments.map((c: any) => ({
+          id: String(c.id),
+          text: essayContent.slice(c.anchor_start, c.anchor_end),
+          start: c.anchor_start,
+          end: c.anchor_end
+        }))
+      );
+      setHighlightComments(
+        Object.fromEntries(comments.map((c: any) => [String(c.id), c.body]))
+      );
+      
+      // Update strikethroughs
+      const sts = strikethroughsRes.data;
+      setStrikethroughs(
+        sts.map((s: any) => ({
+          id: String(s.id),
+          text: s.text,
+          start: s.anchor_start,
+          end: s.anchor_end,
+          author_role: s.author_role
+        }))
+      );
+      
+      // Update additions
+      const adds = additionsRes.data;
       setAdditions(
         adds.map((a: any) => ({
           id: String(a.id),
           text: a.text,
           start: a.anchor_start,
-          end: a.anchor_start + a.text.length
+          end: a.anchor_start + a.text.length,
+          author_role: a.author_role
         }))
       );
     } catch (err) {
@@ -1002,7 +1072,8 @@ export default function PingDetail() {
           id: String(a.id),
           text: a.text,
           start: a.anchor_start,
-          end: a.anchor_start + a.text.length
+          end: a.anchor_start + a.text.length,
+          author_role: a.author_role
         }))
       );
     } catch (err) {
@@ -1102,7 +1173,7 @@ export default function PingDetail() {
               <div
                 ref={essayRef}
                 className="bg-[rgba(109,40,217,0.3)] rounded-xl p-5 leading-[1.8] text-base border border-white/10 min-h-[200px]"
-                style={{ position: "relative", userSelect: role === "consultant" ? "text" : "none" }}
+                style={{ position: "relative", userSelect: (role === "consultant" || role === "student") ? "text" : "none" }}
               >
                 {role === "student" && isEditing ? (
                   <textarea
@@ -1117,7 +1188,7 @@ export default function PingDetail() {
                   </div>
                 )}
                 {/* Floating action box for highlight */}
-                {role === "consultant" && selectionBox && (
+                {(role === "consultant" || role === "student") && selectionBox && (
                   <div
                     className="absolute z-50 bg-white text-gray-900 rounded shadow-lg flex items-center gap-2 px-2 py-1 border border-gray-200"
                     style={{ left: selectionBox.x, top: selectionBox.y }}
@@ -1133,21 +1204,21 @@ export default function PingDetail() {
                 )}
                 
                 {/* Typing mode indicator */}
-                {role === "consultant" && isTyping && (
+                {(role === "consultant" || role === "student") && isTyping && (
                   <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium animate-pulse shadow-lg">
                     Typing Mode - Press Enter to finish, Esc to cancel
                   </div>
                 )}
                 
                 {/* Text replacement mode indicator */}
-                {role === "consultant" && isReplacingText && (
+                {(role === "consultant" || role === "student") && isReplacingText && (
                   <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium animate-pulse shadow-lg">
                     Replacing Text - Press Enter to finish, Esc to cancel
                   </div>
                 )}
                 
-                {/* Instructions for consultant */}
-                {role === "consultant" && !isTyping && !isReplacingText && (
+                {/* Instructions for consultant and student */}
+                {(role === "consultant" || role === "student") && !isTyping && !isReplacingText && (
                   <div className="absolute bottom-2 left-2 bg-white/10 text-white/70 px-3 py-1 rounded-lg text-xs">
                     Double-click to add text • Select text and type to replace • Backspace to strikethrough
                   </div>
@@ -1197,12 +1268,12 @@ export default function PingDetail() {
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="bg-yellow-200 text-yellow-900 text-xs font-bold px-2 py-1 rounded">Comment</span>
-                        {role === "consultant" && (
+                        {(role === "consultant" || role === "student") && (
                           <button onClick={() => handleResolve(h.id)} className="ml-auto text-xs text-gray-300 hover:text-green-500">Mark as resolved</button>
                         )}
                       </div>
                       <div className="text-yellow-100 text-sm mb-3">{h.text}</div>
-                      {role === "consultant" && (
+                      {(role === "consultant" || role === "student") && (
                         <div className="space-y-2">
                           <label className="block text-white/80 text-xs font-medium">Add comment:</label>
                           <textarea
@@ -1215,7 +1286,7 @@ export default function PingDetail() {
                           />
                         </div>
                       )}
-                      {role === "student" && highlightComments[h.id] && (
+                      {(role === "consultant" || role === "student") && highlightComments[h.id] && (
                         <div className="text-white/80 text-sm">
                           <strong>Comment:</strong> {highlightComments[h.id]}
                         </div>
@@ -1232,29 +1303,42 @@ export default function PingDetail() {
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="bg-white/30 text-white text-xs font-bold px-2 py-1 rounded">Delete</span>
+                        {(role === "consultant" || role === "student") && (
+                          <button onClick={() => handleRejectStrikethrough(h.id)} className="ml-auto text-xs text-gray-300 hover:text-red-500">Remove</button>
+                        )}
                       </div>
                       <div className="text-white/80 text-sm line-through mb-2">{h.text}</div>
                       <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => handleAcceptStrikethrough(h.id)}
-                          disabled={role === "consultant"}
-                          className={`px-3 py-1 rounded text-xs font-semibold transition-all duration-300 hover:scale-105 ${
-                            role === "consultant" 
-                              ? "bg-green-600/30 text-green-300 cursor-not-allowed" 
-                              : "bg-green-600/80 text-white hover:bg-green-600"
-                          }`}
-                          title={role === "consultant" ? "Only students can accept strikethroughs" : "Accept this strikethrough"}
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleRejectStrikethrough(h.id)}
-                          className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105 flex items-center gap-1"
-                          title="Remove this strikethrough"
-                        >
-                          <span>🗑️</span>
-                          Remove
-                        </button>
+                        {role === "student" && h.author_role === "consultant" && (
+                          <button
+                            onClick={() => handleAcceptStrikethrough(h.id)}
+                            className="bg-green-600/80 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-green-600 transition-all duration-300 hover:scale-105"
+                            title="Accept this strikethrough"
+                          >
+                            Accept
+                          </button>
+                        )}
+                        
+                        {role === "consultant" && h.author_role === "student" && (
+                          <button
+                            onClick={() => handleAcceptStrikethrough(h.id)}
+                            className="bg-green-600/80 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-green-600 transition-all duration-300 hover:scale-105"
+                            title="Accept this strikethrough"
+                          >
+                            Accept
+                          </button>
+                        )}
+                        
+                        {(role === "student" || role === "consultant") && (
+                          <button
+                            onClick={() => handleRejectStrikethrough(h.id)}
+                            className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105 flex items-center gap-1"
+                            title="Remove this strikethrough"
+                          >
+                            <span>🗑️</span>
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1268,12 +1352,31 @@ export default function PingDetail() {
                     <div key={h.id} className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 flex flex-col">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="bg-blue-200 text-blue-900 text-xs font-bold px-2 py-1 rounded">Addition</span>
-                        {role === "consultant" && (
+                        {(role === "consultant" || role === "student") && (
                           <button onClick={() => handleRejectAddition(h.id)} className="ml-auto text-xs text-gray-300 hover:text-red-500">Remove</button>
                         )}
                       </div>
                       <div className="text-blue-100 text-sm">{h.text}</div>
-                      {role === "student" && (
+                      {role === "student" && h.author_role === "consultant" && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => handleAcceptAddition(h.id)}
+                            className="bg-blue-600/80 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-blue-600 transition-all duration-300 hover:scale-105"
+                            title="Accept this addition"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => handleRejectAddition(h.id)}
+                            className="bg-white/10 text-purple-200 px-3 py-1 rounded text-xs font-semibold hover:bg-white/20 transition-all duration-300 hover:scale-105"
+                            title="Reject this addition"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                      
+                      {role === "consultant" && h.author_role === "student" && (
                         <div className="flex gap-2 mt-2">
                           <button
                             onClick={() => handleAcceptAddition(h.id)}
@@ -1298,6 +1401,68 @@ export default function PingDetail() {
 
               {/* Suggestions List */}
               <div className="space-y-4">
+                {/* Add Suggestion Button */}
+                {(role === "consultant" || role === "student") && (
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowSuggestionForm(!showSuggestionForm)}
+                      className="w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white py-2 px-4 rounded-lg font-semibold hover:from-pink-500 hover:to-purple-600 transition-all duration-300"
+                    >
+                      {showSuggestionForm ? "Cancel Suggestion" : "Add Suggestion"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Suggestion Form */}
+                {(role === "consultant" || role === "student") && showSuggestionForm && (
+                  <div className="bg-[rgba(139,92,246,0.15)] border border-white/10 rounded-xl p-4 mb-4">
+                    <h4 className="text-white font-semibold mb-3">Add New Suggestion</h4>
+                    <div className="space-y-3">
+                      <select
+                        value={suggestionType}
+                        onChange={(e) => setSuggestionType(e.target.value as any)}
+                        className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none"
+                      >
+                        <option value="grammar">Grammar</option>
+                        <option value="style">Style</option>
+                        <option value="content">Content</option>
+                        <option value="structure">Structure</option>
+                      </select>
+                      
+                      <textarea
+                        value={originalText}
+                        onChange={(e) => setOriginalText(e.target.value)}
+                        placeholder="Original text..."
+                        className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
+                        rows={2}
+                      />
+                      
+                      <textarea
+                        value={suggestedText}
+                        onChange={(e) => setSuggestedText(e.target.value)}
+                        placeholder="Suggested text..."
+                        className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
+                        rows={2}
+                      />
+                      
+                      <textarea
+                        value={suggestionComment}
+                        onChange={(e) => setSuggestionComment(e.target.value)}
+                        placeholder="Comment/explanation..."
+                        className="w-full p-2 bg-[rgba(109,40,217,0.3)] border border-white/20 rounded-lg text-white text-sm focus:outline-none resize-none"
+                        rows={2}
+                      />
+                      
+                      <button
+                        onClick={handleAddSuggestion}
+                        className="w-full bg-green-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-green-700 transition-all duration-300"
+                      >
+                        Submit Suggestion
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {ping.suggestions && ping.suggestions.length > 0 ? (
                   ping.suggestions.map((suggestion) => (
                     <div key={suggestion.id} className="bg-[rgba(139,92,246,0.15)] backdrop-blur-[10px] rounded-xl p-4 border border-white/10 mb-4 text-sm leading-[1.5] transition-all duration-300 hover:-translate-x-[2px] hover:shadow-[0_4px_12px_rgba(255,255,255,0.1)]">
@@ -1328,7 +1493,16 @@ export default function PingDetail() {
                         </div>
                       </div>
 
-                      {role === "student" && !suggestion.accepted && (
+                      {role === "student" && !suggestion.accepted && suggestion.author_role === "consultant" && (
+                        <div className="mt-2 pt-2 border-t border-white/20">
+                          <div className="text-xs opacity-80 cursor-pointer flex gap-4">
+                            <span onClick={() => handleAcceptSuggestion(suggestion.id)} className="hover:text-green-300">Apply</span>
+                            <span onClick={() => handleRejectSuggestion(suggestion.id)} className="hover:text-red-300">Dismiss</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {role === "consultant" && !suggestion.accepted && suggestion.author_role === "student" && (
                         <div className="mt-2 pt-2 border-t border-white/20">
                           <div className="text-xs opacity-80 cursor-pointer flex gap-4">
                             <span onClick={() => handleAcceptSuggestion(suggestion.id)} className="hover:text-green-300">Apply</span>
@@ -1340,7 +1514,7 @@ export default function PingDetail() {
                   ))
                 ) : (
                   <div className="text-center text-white/70 py-8">
-                    No suggestions yet. {role === "consultant" && "Add the first suggestion!"}
+                    No suggestions yet. {(role === "consultant" || role === "student") && "Add the first suggestion!"}
                   </div>
                 )}
               </div>
