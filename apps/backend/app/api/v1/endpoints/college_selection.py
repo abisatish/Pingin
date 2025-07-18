@@ -4,6 +4,7 @@ from typing import List
 from pydantic import BaseModel
 from ..deps import get_db, get_current_user
 from app.db.models import Student, CollegeApplication, MajorCategory, CollegeApplicationStatus, EssayResponse
+from app.api.v1.endpoints.college_essay_prompt_map import COLLEGE_ESSAY_MAP
 
 router = APIRouter(prefix="/college-selection", tags=["college-selection"])
 
@@ -16,39 +17,24 @@ class CollegeSelectionResponse(BaseModel):
     message: str
     applications_created: int
 
-def create_default_essays(application_id: int, db: Session):
+def create_default_essays(application_id: int, college_name: str, db: Session):
     """Create default essay prompts for a new college application"""
-    default_prompts = [
-        {
-            "prompt": "Tell us about something that is meaningful to you and why. (250-350 words)",
-            "response": ""
-        },
-        {
-            "prompt": "Describe a challenge you faced and how you overcame it. What did you learn from this experience? (250-350 words)",
-            "response": ""
-        },
-        {
-            "prompt": "What motivates you to pursue your chosen major? How do you plan to use your education to make a difference? (250-350 words)",
-            "response": ""
-        },
-        {
-            "prompt": "Describe a project or activity that demonstrates your leadership skills and teamwork abilities. (250-350 words)",
-            "response": ""
-        },
-        {
-            "prompt": "What are your career goals and how will attending this college help you achieve them? (250-350 words)",
-            "response": ""
-        }
-    ]
-    
-    for prompt_data in default_prompts:
+    prompts = COLLEGE_ESSAY_MAP.get(college_name)
+    if not prompts:
+        prompts = [
+            {"prompt": "Tell us about something that is meaningful to you and why. (250-350 words)", "response": ""},
+            {"prompt": "Describe a challenge you faced and how you overcame it. What did you learn from this experience? (250-350 words)", "response": ""},
+            {"prompt": "What motivates you to pursue your chosen major? How do you plan to use your education to make a difference? (250-350 words)", "response": ""},
+            {"prompt": "Describe a project or activity that demonstrates your leadership skills and teamwork abilities. (250-350 words)", "response": ""},
+            {"prompt": "What are your career goals and how will attending this college help you achieve them? (250-350 words)", "response": ""}
+        ]
+    for prompt_data in prompts:
         essay = EssayResponse(
             application_id=application_id,
             prompt=prompt_data["prompt"],
-            response=prompt_data["response"]
+            response=prompt_data.get("response", "")
         )
         db.add(essay)
-    
     db.commit()
 
 @router.post("/")
@@ -58,12 +44,8 @@ def create_college_application(
     current_user: Student = Depends(get_current_user)
 ):
     """Create a single college application and automatically match with a consultant"""
-    
-    # Check if student has completed the quiz
     if not current_user.quiz_completed:
         raise HTTPException(status_code=400, detail="Student must complete the quiz first")
-    
-    # Create college application
     college_app = CollegeApplication(
         student_id=current_user.id,
         college_name=application.college_name,
@@ -74,18 +56,11 @@ def create_college_application(
     db.add(college_app)
     db.commit()
     db.refresh(college_app)
-    
-    # Create default essay prompts for this application
-    create_default_essays(college_app.id, db)
-    
-    # Automatically match with a consultant
+    create_default_essays(college_app.id, college_app.college_name, db)
     try:
         from app.api.v1.endpoints.matching import match_single_application
         consultant = match_single_application(college_app.id, db)
-        
-        # Refresh the application to get updated consultant info
         db.refresh(college_app)
-        
         return {
             "college_id": college_app.id,
             "college": college_app.college_name,
@@ -96,7 +71,6 @@ def create_college_application(
             "match_score": college_app.match_score
         }
     except Exception as e:
-        # If matching fails, still return the application but without consultant
         print(f"Matching failed for application {college_app.id}: {e}")
         return {
             "college_id": college_app.id,
@@ -171,12 +145,8 @@ def submit_college_applications(
     current_user: Student = Depends(get_current_user)
 ):
     """Submit college applications for a student"""
-    
-    # Check if student has completed the quiz
     if not current_user.quiz_completed:
         raise HTTPException(status_code=400, detail="Student must complete the quiz first")
-    
-    # Create college applications
     created_applications = []
     for app in applications:
         college_app = CollegeApplication(
@@ -188,20 +158,12 @@ def submit_college_applications(
         )
         db.add(college_app)
         created_applications.append(college_app)
-    
-    # Commit to get the application IDs
     db.commit()
-    
-    # Create default essays for each application
     for college_app in created_applications:
-        create_default_essays(college_app.id, db)
-    
-    # Update student's college selection status
+        create_default_essays(college_app.id, college_app.college_name, db)
     current_user.college_selection_completed = True
     db.add(current_user)
-    
     db.commit()
-    
     return CollegeSelectionResponse(
         message="College applications submitted successfully",
         applications_created=len(created_applications)

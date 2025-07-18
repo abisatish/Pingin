@@ -93,8 +93,8 @@ def add_comment(
     role: str = Depends(get_current_role),
     db: Session = Depends(get_db),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may comment")
+    if role not in ("consultant", "student"):
+        raise HTTPException(403, "Only consultants or students may comment")
     essay = _essay_or_404(db, essay_id)
     c = Comment(
         body=payload.body,

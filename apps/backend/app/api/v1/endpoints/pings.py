@@ -114,7 +114,7 @@ def get_ping(
                 "originalText": s.original_text,
                 "suggestedText": s.suggested_text,
                 "comment": s.comment,
-                "author": "Consultant",  # This would come from consultant lookup
+                "author_role": s.author_role,
                 "timestamp": s.created_at.isoformat(),
                 "accepted": s.accepted
             } for s in suggestions
@@ -138,21 +138,32 @@ def create_ping(payload: PingCreate, current_user = Depends(get_current_user), d
 def create_suggestion(
     ping_id: int,
     suggestion: SuggestionCreate,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    role: str = Depends(get_current_role),
+    db: Session = Depends(get_db),
+    authorization: str = Header(...),
 ):
     """Create a new suggestion for a ping"""
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may create suggestions")
+    
     # Check if ping exists and user has access
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
     
-    # For now, allow any authenticated user to create suggestions
-    # In a real app, you'd check if the user is a consultant
+    # Get the appropriate user based on role
+    if role == "consultant":
+        current_consultant = get_current_consultant(authorization, db)
+        author_id = current_consultant.id
+    else:  # role == "student"
+        current_student = get_current_user(authorization, db)
+        author_id = current_student.id
     
+    # Create the suggestion
     new_suggestion = Suggestion(
         ping_id=ping_id,
-        author_id=suggestion.author_id,
+        author_id=author_id,
+        author_role=role,
         type=suggestion.type,
         original_text=suggestion.original_text,
         suggested_text=suggestion.suggested_text,
@@ -177,7 +188,8 @@ def create_suggestion(
 def accept_suggestion(
     ping_id: int,
     suggestion_id: int,
-    current_user = Depends(get_current_user),
+    role: str = Depends(get_current_role),
+    authorization: str = Header(...),
     db: Session = Depends(get_db)
 ):
     """Accept a suggestion"""
@@ -185,10 +197,11 @@ def accept_suggestion(
     if not suggestion or suggestion.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     
-    # Check if user owns the ping
-    ping = db.get(Ping, ping_id)
-    if not ping or ping.student_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to accept this suggestion")
+    # Check permissions: can only accept items created by the opposite role
+    if role == "student" and suggestion.author_role != "consultant":
+        raise HTTPException(status_code=403, detail="Students can only accept consultant suggestions")
+    elif role == "consultant" and suggestion.author_role != "student":
+        raise HTTPException(status_code=403, detail="Consultants can only accept student suggestions")
     
     suggestion.accepted = True
     db.add(suggestion)
@@ -200,7 +213,8 @@ def accept_suggestion(
 def reject_suggestion(
     ping_id: int,
     suggestion_id: int,
-    current_user = Depends(get_current_user),
+    role: str = Depends(get_current_role),
+    authorization: str = Header(...),
     db: Session = Depends(get_db)
 ):
     """Reject a suggestion"""
@@ -208,10 +222,9 @@ def reject_suggestion(
     if not suggestion or suggestion.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     
-    # Check if user owns the ping
-    ping = db.get(Ping, ping_id)
-    if not ping or ping.student_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to reject this suggestion")
+    # Both roles can reject any suggestion
+    if role not in ["consultant", "student"]:
+        raise HTTPException(status_code=403, detail="Only consultants and students may reject suggestions")
     
     # Delete the suggestion
     db.delete(suggestion)
@@ -226,7 +239,15 @@ def get_comments_for_ping(
     role: str = Depends(get_current_role),
     db: Session = Depends(get_db),
 ):
+    print(f"DEBUG: Fetching comments for ping {ping_id}")
+    print(f"DEBUG: Role: {role}")
+    
     comments = db.exec(select(Comment).where(Comment.ping_id == ping_id)).all()
+    print(f"DEBUG: Found {len(comments)} comments")
+    
+    for comment in comments:
+        print(f"DEBUG: Comment {comment.id}: body='{comment.body}', anchor_start={comment.anchor_start}, anchor_end={comment.anchor_end}")
+    
     return comments
 
 @router.post("/{ping_id}/comments", response_model=CommentRead)
@@ -235,24 +256,49 @@ def add_comment_to_ping(
     payload: CommentCreate,
     role: str = Depends(get_current_role),
     db: Session = Depends(get_db),
-    current_consultant = Depends(get_current_consultant),
+    authorization: str = Header(...),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may comment")
+    print(f"DEBUG: Creating comment for ping {ping_id}")
+    print(f"DEBUG: Role: {role}")
+    print(f"DEBUG: Payload: {payload}")
+    
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may comment")
+    
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
-    c = Comment(
-        body=payload.body,
+    
+    # Get the appropriate user based on role
+    if role == "consultant":
+        current_consultant = get_current_consultant(authorization, db)
+        author_id = current_consultant.id
+        print(f"DEBUG: Consultant ID: {author_id}")
+    else:  # role == "student"
+        current_student = get_current_user(authorization, db)
+        author_id = current_student.id
+        print(f"DEBUG: Student ID: {author_id}")
+    
+    # Ensure body is not None (empty string is fine for highlights)
+    body = payload.body if payload.body is not None else ""
+    
+    # Create the comment
+    comment = Comment(
+        ping_id=ping_id,
+        author_id=author_id,
+        author_role=role,
         anchor_start=payload.anchor_start,
         anchor_end=payload.anchor_end,
-        ping_id=ping_id,
-        author_id=current_consultant.id,
+        body=body
     )
-    db.add(c)
+    
+    print(f"DEBUG: Creating comment with body: '{body}', anchor_start: {payload.anchor_start}, anchor_end: {payload.anchor_end}")
+    
+    db.add(comment)
     db.commit()
-    db.refresh(c)
-    return c
+    db.refresh(comment)
+    print(f"DEBUG: Comment created with ID: {comment.id}")
+    return comment
 
 @router.post("/{ping_id}/comments/{comment_id}/resolve")
 def resolve_comment(
@@ -261,8 +307,8 @@ def resolve_comment(
     role: str = Depends(get_current_role),
     db: Session = Depends(get_db),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may resolve comments")
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may resolve comments")
     comment = db.get(Comment, comment_id)
     if not comment or comment.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -280,8 +326,8 @@ def update_comment(
     role: str = Depends(get_current_role),
     db: Session = Depends(get_db),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may update comments")
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may update comments")
     comment = db.get(Comment, comment_id)
     if not comment or comment.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -307,6 +353,7 @@ def get_strikethroughs_for_ping(
             "anchor_end": s.anchor_end,
             "text": s.text,
             "author_id": s.author_id,
+            "author_role": s.author_role,
             "created_at": s.created_at.isoformat(),
         } for s in sts
     ]
@@ -317,16 +364,26 @@ def create_strikethrough(
     payload: StrikethroughCreate,
     db: Session = Depends(get_db),
     role: str = Depends(get_current_role),
-    current_consultant = Depends(get_current_consultant),
+    authorization: str = Header(...),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may create strikethroughs")
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may create strikethroughs")
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
+    
+    # Get the appropriate user based on role
+    if role == "consultant":
+        current_consultant = get_current_consultant(authorization, db)
+        author_id = current_consultant.id
+    else:  # role == "student"
+        current_student = get_current_user(authorization, db)
+        author_id = current_student.id
+    
     s = Strikethrough(
         ping_id=ping_id,
-        author_id=current_consultant.id,
+        author_id=author_id,
+        author_role=role,
         anchor_start=payload.anchor_start,
         anchor_end=payload.anchor_end,
         text=payload.text,
@@ -349,21 +406,77 @@ def accept_strikethrough(
     strikethrough_id: int,
     db: Session = Depends(get_db),
     role: str = Depends(get_current_role),
-    current_user = Depends(get_current_user),
+    authorization: str = Header(...),
 ):
     st = db.get(Strikethrough, strikethrough_id)
     if not st or st.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Strikethrough not found")
+    
+    # Check permissions: can only accept items created by the opposite role
+    if role == "student" and st.author_role != "consultant":
+        raise HTTPException(status_code=403, detail="Students can only accept consultant strikethroughs")
+    elif role == "consultant" and st.author_role != "student":
+        raise HTTPException(status_code=403, detail="Consultants can only accept student strikethroughs")
+    
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
     essay = db.get(EssayResponse, ping.essay_id)
     if not essay:
         raise HTTPException(status_code=404, detail="Essay not found")
+    
+    # Calculate the length of text being removed
+    deletion_length = st.anchor_end - st.anchor_start
+    
     # Remove the text from the essay
     essay.response = essay.response[:st.anchor_start] + essay.response[st.anchor_end:]
     essay.last_edited = datetime.utcnow()
     db.add(essay)
+    
+    # Update anchor positions for all existing annotations that come after the deletion point
+    # Update comments
+    comments = db.exec(select(Comment).where(Comment.ping_id == ping_id)).all()
+    for comment in comments:
+        if comment.anchor_start >= st.anchor_end:
+            comment.anchor_start -= deletion_length
+            comment.anchor_end -= deletion_length
+            db.add(comment)
+        elif comment.anchor_start >= st.anchor_start and comment.anchor_end <= st.anchor_end:
+            # Comment is completely within the deleted text, mark as resolved
+            comment.resolved = True
+            db.add(comment)
+        elif comment.anchor_start < st.anchor_start and comment.anchor_end > st.anchor_start:
+            # Comment overlaps with deletion, adjust end position
+            comment.anchor_end = st.anchor_start
+            db.add(comment)
+    
+    # Update strikethroughs
+    strikethroughs = db.exec(select(Strikethrough).where(Strikethrough.ping_id == ping_id)).all()
+    for other_st in strikethroughs:
+        if other_st.id != st.id:
+            if other_st.anchor_start >= st.anchor_end:
+                other_st.anchor_start -= deletion_length
+                other_st.anchor_end -= deletion_length
+                db.add(other_st)
+            elif other_st.anchor_start >= st.anchor_start and other_st.anchor_end <= st.anchor_end:
+                # Strikethrough is completely within the deleted text, delete it
+                db.delete(other_st)
+            elif other_st.anchor_start < st.anchor_start and other_st.anchor_end > st.anchor_start:
+                # Strikethrough overlaps with deletion, adjust end position
+                other_st.anchor_end = st.anchor_start
+                db.add(other_st)
+    
+    # Update additions
+    additions = db.exec(select(Addition).where(Addition.ping_id == ping_id)).all()
+    for addition in additions:
+        if addition.anchor_start >= st.anchor_end:
+            addition.anchor_start -= deletion_length
+            db.add(addition)
+        elif addition.anchor_start >= st.anchor_start and addition.anchor_start < st.anchor_end:
+            # Addition is within the deleted text, delete it
+            db.delete(addition)
+    
+    # Delete the accepted strikethrough
     db.delete(st)
     db.commit()
     return {"message": "Strikethrough accepted and essay updated"}
@@ -396,6 +509,7 @@ def get_additions_for_ping(
             "anchor_start": a.anchor_start,
             "text": a.text,
             "author_id": a.author_id,
+            "author_role": a.author_role,
             "accepted": a.accepted,
             "created_at": a.created_at.isoformat(),
         } for a in additions
@@ -407,16 +521,26 @@ def create_addition(
     payload: AdditionCreate,
     db: Session = Depends(get_db),
     role: str = Depends(get_current_role),
-    current_consultant = Depends(get_current_consultant),
+    authorization: str = Header(...),
 ):
-    if role != "consultant":
-        raise HTTPException(403, "Only consultants may create additions")
+    if role not in ["consultant", "student"]:
+        raise HTTPException(403, "Only consultants and students may create additions")
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
+    
+    # Get the appropriate user based on role
+    if role == "consultant":
+        current_consultant = get_current_consultant(authorization, db)
+        author_id = current_consultant.id
+    else:  # role == "student"
+        current_student = get_current_user(authorization, db)
+        author_id = current_student.id
+    
     a = Addition(
         ping_id=ping_id,
-        author_id=current_consultant.id,
+        author_id=author_id,
+        author_role=role,
         anchor_start=payload.anchor_start,
         text=payload.text,
     )
@@ -438,21 +562,57 @@ def accept_addition(
     addition_id: int,
     db: Session = Depends(get_db),
     role: str = Depends(get_current_role),
-    current_user = Depends(get_current_user),
+    authorization: str = Header(...),
 ):
     addition = db.get(Addition, addition_id)
     if not addition or addition.ping_id != ping_id:
         raise HTTPException(status_code=404, detail="Addition not found")
+    
+    # Check permissions: can only accept items created by the opposite role
+    if role == "student" and addition.author_role != "consultant":
+        raise HTTPException(status_code=403, detail="Students can only accept consultant additions")
+    elif role == "consultant" and addition.author_role != "student":
+        raise HTTPException(status_code=403, detail="Consultants can only accept student additions")
+    
     ping = db.get(Ping, ping_id)
     if not ping:
         raise HTTPException(status_code=404, detail="Ping not found")
     essay = db.get(EssayResponse, ping.essay_id)
     if not essay:
         raise HTTPException(status_code=404, detail="Essay not found")
+    
     # Insert the text into the essay
     essay.response = essay.response[:addition.anchor_start] + addition.text + essay.response[addition.anchor_start:]
     essay.last_edited = datetime.utcnow()
     db.add(essay)
+    
+    # Update anchor positions for all existing annotations that come after the insertion point
+    insertion_length = len(addition.text)
+    
+    # Update comments
+    comments = db.exec(select(Comment).where(Comment.ping_id == ping_id)).all()
+    for comment in comments:
+        if comment.anchor_start >= addition.anchor_start:
+            comment.anchor_start += insertion_length
+            comment.anchor_end += insertion_length
+            db.add(comment)
+    
+    # Update strikethroughs
+    strikethroughs = db.exec(select(Strikethrough).where(Strikethrough.ping_id == ping_id)).all()
+    for st in strikethroughs:
+        if st.anchor_start >= addition.anchor_start:
+            st.anchor_start += insertion_length
+            st.anchor_end += insertion_length
+            db.add(st)
+    
+    # Update other additions (that come after this one)
+    other_additions = db.exec(select(Addition).where(Addition.ping_id == ping_id)).all()
+    for other_add in other_additions:
+        if other_add.id != addition.id and other_add.anchor_start >= addition.anchor_start:
+            other_add.anchor_start += insertion_length
+            db.add(other_add)
+    
+    # Delete the accepted addition
     db.delete(addition)
     db.commit()
     return {"message": "Addition accepted and essay updated"}
